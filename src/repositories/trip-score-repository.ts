@@ -12,10 +12,10 @@ export async function saveTripScore(
         .from('trips')
         .update({
             trip_score: score,
-            status: 'completed',
+            status: 'Completed',
         })
         .eq('trip_id', tripId)
-        .eq('status', 'processing')
+        .eq('status', 'Processing')
         .not('end_time', 'is', null)
         .select(tripFields)
         .maybeSingle();
