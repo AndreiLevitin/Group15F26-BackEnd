@@ -1,5 +1,8 @@
 import { supabase } from '../src/lib/supabase.js';
 import { tripFields, type EndTripRequest, type Trip } from '../src/types/trip.js';
+import { readRecordedTripData } from '../src/repositories/recorded-trip-repository.js';
+import { saveTripScore } from '../src/repositories/trip-score-repository.js';
+import { loadTripScoringConfig, scoreEndedTrip } from '../src/services/score-ended-trip.js';
 
 const uuidPattern =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -12,6 +15,25 @@ function isEndTripRequest(value: unknown): value is EndTripRequest {
         typeof value.tripId === 'string' &&
         uuidPattern.test(value.tripId)
     );
+}
+
+async function finishScoring(tripId: string, config: ReturnType<typeof loadTripScoringConfig>) {
+    try {
+        const completed = await scoreEndedTrip(tripId, config, { readRecordedTripData, saveTripScore });
+        if (completed) return Response.json({ trip: completed });
+
+        // Another request may have finished the same trip while this one was scoring.
+        const { data, error } = await supabase
+            .from('trips')
+            .select(tripFields)
+            .eq('trip_id', tripId)
+            .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (data?.status === 'Completed') return Response.json({ trip: data });
+    } catch (error) {
+        console.error('Could not finish trip scoring:', error);
+    }
+    return Response.json({ error: 'trip_scoring_failed' }, { status: 503 });
 }
 
 export async function POST(request: Request) {
@@ -36,6 +58,14 @@ export async function POST(request: Request) {
         );
     }
 
+    let config: ReturnType<typeof loadTripScoringConfig>;
+    try {
+        config = loadTripScoringConfig(process.env);
+    } catch (error) {
+        console.error('Trip scoring configuration is unavailable:', error);
+        return Response.json({ error: 'trip_scoring_unavailable' }, { status: 503 });
+    }
+
     try {
         const { data: trip, error: updateError } = await supabase
             .from('trips')
@@ -58,7 +88,7 @@ export async function POST(request: Request) {
         }
 
         if (trip) {
-            return Response.json({ trip });
+            return finishScoring(body.tripId, config);
         }
 
         const { data: existingTrip, error: lookupError } = await supabase
@@ -80,6 +110,14 @@ export async function POST(request: Request) {
                 { error: 'trip_not_found', message: 'Trip was not found.' },
                 { status: 404 },
             );
+        }
+
+        if (existingTrip.status === 'Processing' && existingTrip.end_time) {
+            return finishScoring(body.tripId, config);
+        }
+
+        if (existingTrip.status === 'Completed') {
+            return Response.json({ trip: existingTrip });
         }
 
         return Response.json(

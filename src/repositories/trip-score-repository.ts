@@ -3,9 +3,14 @@ import { tripFields, type Trip } from '../types/trip.js';
 export async function saveTripScore(
     tripId: string,
     score: number | null,
+    distanceKm?: number,
 ): Promise<Trip | null> {
     if (score !== null && (!Number.isFinite(score) || score < 0 || score > 100)) {
         throw new RangeError('trip score must be between 0 and 100, or null.');
+    }
+
+    if (distanceKm !== undefined && (!Number.isFinite(distanceKm) || distanceKm < 0)) {
+        throw new RangeError('Trip distance must be a finite non-negative number.');
     }
 
     const { data, error } = await supabase
@@ -13,6 +18,7 @@ export async function saveTripScore(
         .update({
             trip_score: score,
             status: 'Completed',
+            ...(distanceKm === undefined ? {} : { distance_km: distanceKm }),
         })
         .eq('trip_id', tripId)
         .eq('status', 'Processing')
