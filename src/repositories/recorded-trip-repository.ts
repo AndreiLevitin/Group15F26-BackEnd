@@ -72,7 +72,7 @@ export async function readRecordedTripData(
             .not('latitude', 'is', null)
             .not('longitude', 'is', null)
             .order('recorded_at', { ascending: true })
-            .order('id', { ascending: true })
+            .order('sample_id', { ascending: true })
             .range(offset, offset + pageSize - 1);
 
         if (sampleError) {
