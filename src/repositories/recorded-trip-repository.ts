@@ -13,13 +13,13 @@ export type RecordedTripResult =
     | {
     status: 'Unscored';
     score: null;
-    reason: 'MISSING_OR_INVALID_DISTANCE' | 'NO_GPS_READINGS';
+    reason: 'NO_GPS_READINGS';
 }
     | {
     status: 'Ready';
     input: {
         tripId: string;
-        distanceKm: number;
+        distanceKm: number | null;
         samples: RecordedGpsSample[];
     };
 };
@@ -48,18 +48,9 @@ export async function readRecordedTripData(
         return { status: 'NotReady' };
     }
 
-    const distanceKm = trip.distance_km;
-    if (
-        typeof distanceKm !== 'number' ||
-        !Number.isFinite(distanceKm) ||
-        distanceKm <= 0
-    ) {
-        return {
-            status: 'Unscored',
-            score: null,
-            reason: 'MISSING_OR_INVALID_DISTANCE',
-        };
-    }
+    const storedDistance = trip.distance_km;
+    const distanceKm = typeof storedDistance === 'number' &&
+        Number.isFinite(storedDistance) && storedDistance > 0 ? storedDistance : null;
 
     const samples: RecordedGpsSample[] = [];
     let offset = 0;
