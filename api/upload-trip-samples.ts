@@ -107,7 +107,7 @@ export async function POST(request: Request) {
 // The trip has to exist before its samples can be saved.
     const { data: trip, error: lookupError } = await supabase
         .from('trips')
-        .select('trip_id')
+        .select('trip_id, status')
         .eq('trip_id', tripId)
         .maybeSingle();
 
@@ -126,6 +126,11 @@ export async function POST(request: Request) {
             { error: 'trip_not_found', message: 'Trip not found.' },
             { status: 404 },
         );
+    }
+
+    // Preserve the exact raw samples associated with stored enrichment and scores.
+    if (trip.status !== 'Active') {
+        return Response.json({ error: 'trip_not_active', message: 'Samples cannot change after a trip ends.' }, { status: 409 });
     }
 
 // A retry sends the whole trip again, so clear any rows

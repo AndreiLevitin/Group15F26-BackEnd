@@ -3,6 +3,10 @@ import { tripFields, type EndTripRequest, type Trip } from '../src/types/trip.js
 import { readRecordedTripData } from '../src/repositories/recorded-trip-repository.js';
 import { saveTripScore } from '../src/repositories/trip-score-repository.js';
 import { loadTripScoringConfig, scoreEndedTrip } from '../src/services/score-ended-trip.js';
+import { loadSpeedLimitConfig } from '../src/config/speed-limit-config.js';
+import { enrichTripSpeedLimits } from '../src/services/enrich-trip-speed-limits.js';
+import { TomTomSpeedLimitProvider } from '../src/services/tomtom-speed-limit-provider.js';
+import { tripSpeedLimitRepository } from '../src/repositories/trip-speed-limit-repository.js';
 
 const uuidPattern =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -18,6 +22,16 @@ function isEndTripRequest(value: unknown): value is EndTripRequest {
 }
 
 async function finishScoring(tripId: string, config: ReturnType<typeof loadTripScoringConfig>) {
+    try {
+        const speedLimitConfig = loadSpeedLimitConfig(process.env);
+        if (speedLimitConfig) {
+            await enrichTripSpeedLimits(tripId, new TomTomSpeedLimitProvider(speedLimitConfig), tripSpeedLimitRepository);
+        }
+    } catch {
+        // Provider URLs and response bodies may contain credentials or GPS data.
+        console.error('Trip speed-limit enrichment failed.');
+        return Response.json({ error: 'trip_speed_limits_unavailable' }, { status: 503 });
+    }
     try {
         const completed = await scoreEndedTrip(tripId, config, { readRecordedTripData, saveTripScore });
         if (completed) return Response.json({ trip: completed });
