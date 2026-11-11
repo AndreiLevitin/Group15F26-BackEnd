@@ -1,3 +1,5 @@
+import { gpsDistanceKm } from './gps-distance.ts';
+
 interface GpsPoint {
     recorded_at: string;
     latitude: number | null;
@@ -27,19 +29,12 @@ export function calculateTripDistanceKm(points: readonly GpsPoint[]): number | n
     const ordered = [...byTime.entries()].sort(([a], [b]) => a - b);
     if (ordered.length < 2) return null;
 
-    const radians = (degrees: number) => degrees * Math.PI / 180;
     let previous: { latitude: number; longitude: number } | undefined;
     let distanceKm = 0;
 
     for (const [, point] of ordered) {
         if (previous) {
-            const dLat = radians(point.latitude - previous.latitude);
-            const dLon = radians(point.longitude - previous.longitude);
-            const a = Math.sin(dLat / 2) ** 2 +
-                Math.cos(radians(previous.latitude)) *
-                Math.cos(radians(point.latitude)) *
-                Math.sin(dLon / 2) ** 2;
-            distanceKm += 6371 * 2 * Math.asin(Math.sqrt(Math.min(1, a)));
+            distanceKm += gpsDistanceKm(previous, point);
         }
         previous = point;
     }
