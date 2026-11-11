@@ -21,7 +21,13 @@ function isEndTripRequest(value: unknown): value is EndTripRequest {
     );
 }
 
-async function finishScoring(tripId: string, config: ReturnType<typeof loadTripScoringConfig>) {
+async function finishScoring(tripId: string) {
+    let config: ReturnType<typeof loadTripScoringConfig>;
+    try {
+        config = loadTripScoringConfig(process.env);
+    } catch {
+        return Response.json({ error: 'trip_scoring_unavailable' }, { status: 503 });
+    }
     try {
         const speedLimitConfig = loadSpeedLimitConfig(process.env);
         if (speedLimitConfig) {
@@ -72,14 +78,6 @@ export async function POST(request: Request) {
         );
     }
 
-    let config: ReturnType<typeof loadTripScoringConfig>;
-    try {
-        config = loadTripScoringConfig(process.env);
-    } catch (error) {
-        console.error('Trip scoring configuration is unavailable:', error);
-        return Response.json({ error: 'trip_scoring_unavailable' }, { status: 503 });
-    }
-
     try {
         const { data: trip, error: updateError } = await supabase
             .from('trips')
@@ -102,7 +100,7 @@ export async function POST(request: Request) {
         }
 
         if (trip) {
-            return finishScoring(body.tripId, config);
+            return finishScoring(body.tripId);
         }
 
         const { data: existingTrip, error: lookupError } = await supabase
@@ -127,7 +125,7 @@ export async function POST(request: Request) {
         }
 
         if (existingTrip.status === 'Processing' && existingTrip.end_time) {
-            return finishScoring(body.tripId, config);
+            return finishScoring(body.tripId);
         }
 
         if (existingTrip.status === 'Completed') {

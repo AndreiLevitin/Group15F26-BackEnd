@@ -2,17 +2,13 @@ export interface ScoringParameters {
     minValidReadings: number;
     minDistanceKm: number;
     speedingPenaltyPerEvent: number;
-}
-export interface TripScoringConfig extends ScoringParameters {
-    speedLimitKmh: number;
     toleranceKmh: number;
+    /** Final fallback threshold; tolerance must not be added again. */
+    fallbackThresholdKmh: number;
 }
+export type TripScoringConfig = ScoringParameters;
 export function createTripScoringConfig(
     parameters: ScoringParameters,
 ): TripScoringConfig {
-    return {
-        ...parameters,
-        speedLimitKmh: 80,
-        toleranceKmh: 5,
-    };
+    return { ...parameters };
 }

@@ -1,11 +1,14 @@
 import { supabase } from '../lib/supabase.js';
-import { tripFields, type Trip } from '../types/trip.js';
+import type { Trip } from '../types/trip.js';
+import type { TripScoringResult } from '../services/trip-scoring.js';
+import type { TripScoringConfig } from '../config/trip-scoring-config.js';
 export async function saveTripScore(
     tripId: string,
-    score: number | null,
+    result: TripScoringResult,
+    config: TripScoringConfig,
     distanceKm?: number,
 ): Promise<Trip | null> {
-    if (score !== null && (!Number.isFinite(score) || score < 0 || score > 100)) {
+    if (result.score !== null && (!Number.isFinite(result.score) || result.score < 0 || result.score > 100)) {
         throw new RangeError('trip score must be between 0 and 100, or null.');
     }
 
@@ -13,18 +16,10 @@ export async function saveTripScore(
         throw new RangeError('Trip distance must be a finite non-negative number.');
     }
 
-    const { data, error } = await supabase
-        .from('trips')
-        .update({
-            trip_score: score,
-            status: 'Completed',
-            ...(distanceKm === undefined ? {} : { distance_km: distanceKm }),
-        })
-        .eq('trip_id', tripId)
-        .eq('status', 'Processing')
-        .not('end_time', 'is', null)
-        .select(tripFields)
-        .maybeSingle();
+    // Score, event/fallback decisions and exact config/distance are one transaction.
+    const { data, error } = await supabase.rpc('save_trip_scoring_result', {
+        p_trip_id: tripId, p_result: result, p_config: config, p_distance_km: distanceKm ?? null,
+    });
     if (error) {
         throw new Error(`could not save trip score: ${error.message}`);
     }
