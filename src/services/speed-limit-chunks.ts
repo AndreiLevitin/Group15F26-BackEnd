@@ -1,13 +1,5 @@
 import type { SpeedLimitSample } from '../types/speed-limit.js';
-
-export function gpsDistanceKm(a: SpeedLimitSample, b: SpeedLimitSample): number {
-    const radians = (v: number) => v * Math.PI / 180;
-    const lat = radians(b.latitude - a.latitude);
-    const lon = radians(b.longitude - a.longitude);
-    const h = Math.sin(lat / 2) ** 2 + Math.cos(radians(a.latitude)) *
-        Math.cos(radians(b.latitude)) * Math.sin(lon / 2) ** 2;
-    return 6371 * 2 * Math.asin(Math.sqrt(Math.min(1, h)));
-}
+import { gpsDistanceKm } from './gps-distance.ts';
 
 /** Straight-line distance is an estimate; actual matched-distance caps are checked separately. */
 export function chunkSpeedLimitTrace(
