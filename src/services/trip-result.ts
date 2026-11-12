@@ -6,6 +6,10 @@ export interface TripResultResponse {
     status: TripStatus;
     score: number | null;
     reason: string | null;
+    startTime: string;
+    endTime: string | null;
+    distanceKm: number | null;
+    durationSeconds: number | null;
 }
 
 type FindTripResult = (tripId: string) => Promise<StoredTripResult | null>;
@@ -29,6 +33,12 @@ export function createTripResultHandler(findTripResult: FindTripResult) {
                 return json({ error: 'trip_not_found', message: 'Trip was not found.' }, 404);
             }
 
+            // durationSeconds is worked out from the start and end times; it
+            // stays null while a trip has no end_time yet.
+            const durationSeconds = trip.end_time
+                ? Math.round((Date.parse(trip.end_time) - Date.parse(trip.start_time)) / 1000)
+                : null;
+
             const result: TripResultResponse = {
                 tripId: trip.trip_id,
                 status: trip.status,
@@ -37,6 +47,10 @@ export function createTripResultHandler(findTripResult: FindTripResult) {
                 reason: trip.status === 'Completed' && trip.trip_score === null
                     ? 'unscored'
                     : null,
+                startTime: trip.start_time,
+                endTime: trip.end_time,
+                distanceKm: trip.distance_km,
+                durationSeconds,
             };
             return json(result);
         } catch (error) {

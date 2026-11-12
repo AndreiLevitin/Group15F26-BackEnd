@@ -4,14 +4,19 @@
 Responses use `Cache-Control: no-store` so clients can poll while processing.
 
 ```json
-{"tripId":"123e4567-e89b-42d3-a456-426614174000","status":"Completed","score":87,"reason":null}
+{"tripId":"123e4567-e89b-42d3-a456-426614174000","status":"Completed","score":87,
+  "reason":null,"startTime":"2026-11-09T14:00:00.000Z","endTime":"2026-11-09T14:30:00.000Z",
+  "distanceKm":12.5,"durationSeconds":1800}
 ```
 
 Statuses: `Active`, `Processing`, `Completed`, `Invalid`. Only `Completed`
 exposes the stored score; zero is a valid score. An absent score stays null.
 `Completed` with a null score returns `reason: "unscored"`; otherwise reason
 is null. Clients stop polling on `Completed` (including unscored) or `Invalid`.
-This endpoint does not calculate scores or change trip state.
+This endpoint does not calculate scores or change trip state. The response also
+includes startTime and endTime (the stored trip times), distanceKm, and
+durationSeconds, which is computed from the two times and is null while the
+trip has not ended.
 
 Errors: missing, malformed or repeated `tripId` → 400; unknown trip → 404;
 database failure → 503. Error bodies contain an `error` code.
