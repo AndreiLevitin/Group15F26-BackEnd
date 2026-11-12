@@ -16,8 +16,8 @@ export async function saveTripScore(
         throw new RangeError('Trip distance must be a finite non-negative number.');
     }
 
-    // Score, event/fallback decisions and exact config/distance are one transaction.
-    const { data, error } = await supabase.rpc('save_trip_scoring_result', {
+    // Score, interval decisions and exact config/distance are one transaction.
+    const { data, error } = await supabase.rpc('save_trip_band_scoring_result', {
         p_trip_id: tripId, p_result: result, p_config: config, p_distance_km: distanceKm ?? null,
     });
     if (error) {

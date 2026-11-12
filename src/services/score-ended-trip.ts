@@ -16,9 +16,9 @@ export async function scoreEndedTrip(
 ) {
     const loaded = await dependencies.readRecordedTripData(tripId);
     if (loaded.status === 'Unscored') {
-        return dependencies.saveTripScore(tripId, { scoringStatus: 'Unscored', score: null,
-            reason: 'NO_GPS_READINGS', validReadings: 0, ignoredReadings: 0,
-            duplicateTimestampReadings: 0, sampleDecisions: [] }, config);
+        const result = calculateTripScore({ tripId, distanceKm: null, samples: [] }, config);
+        if (result.scoringStatus === 'Unscored') result.reason = 'NO_GPS_READINGS';
+        return dependencies.saveTripScore(tripId, result, config);
     }
     if (loaded.status !== 'Ready') return null;
 

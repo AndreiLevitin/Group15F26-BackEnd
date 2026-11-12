@@ -1,3 +1,7 @@
+> Historical event-based scoring rules. For newly completed trips on the revised
+> Task #73 deployment, see [time-weighted speed bands](per-limit-scoring.md).
+> Existing historical scores are retained.
+
 # Trip scoring rules - Sprint 1
 
 Azure Task: AB#50 - Document trip scoring rules  

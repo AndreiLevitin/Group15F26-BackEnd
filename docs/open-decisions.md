@@ -1,3 +1,21 @@
+# Scoring decisions
+
+## Agreed revision for Task #73 / US #64
+
+- Remove fallback 85: unknown limits are excluded, not considered compliant.
+- Score speed bands using a time-weighted average; persist table/config and quality.
+- Retain minimum 5 participating readings and 0.1 km total trip distance.
+- No separate evaluated-time or coverage gate for this PoC; persist both metrics.
+- Use short adjacent intervals up to 3 seconds; exclude stationary mean speed below 5 km/h.
+- Keep completed historical scores unchanged. Update US #64 acceptance criteria to
+  reflect the agreed formula and replacement of fallback before rollout.
+- UI statistics and full export are separate future stories.
+
+See [current algorithm and rollout](per-limit-scoring.md). The previous discussion
+below is retained as history and does not describe the new v2 implementation.
+
+---
+
 # Вопросы для решения командой
 
 ## 1. Как оценивать валидные GPS readings без ограничения скорости?
