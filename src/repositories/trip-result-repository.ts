@@ -1,12 +1,13 @@
 import { supabase } from '../lib/supabase.js';
 import type { Trip } from '../types/trip.js';
+import { tripFields } from '../types/trip.js';
 
-export type StoredTripResult = Pick<Trip, 'trip_id' | 'status' | 'trip_score'>;
+export type StoredTripResult = Pick<Trip, 'trip_id' | 'start_time' | 'end_time' | 'status' | 'distance_km' | 'trip_score'>;
 
 export async function findTripResult(tripId: string): Promise<StoredTripResult | null> {
     const { data, error } = await supabase
         .from('trips')
-        .select('trip_id, status, trip_score')
+        .select(tripFields)
         .eq('trip_id', tripId)
         .maybeSingle();
 

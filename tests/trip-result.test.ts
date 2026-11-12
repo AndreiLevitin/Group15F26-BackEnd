@@ -22,21 +22,26 @@ test('returns 404 for an unknown trip', async () => {
 
 for (const status of ['Active', 'Processing', 'Invalid'] satisfies TripStatus[]) {
     test(`${status} does not expose a numeric score`, async () => {
-        const handler = createTripResultHandler(async id => ({ trip_id: id, status, trip_score: 87 }));
+
+        const handler = createTripResultHandler(async id => ({ trip_id: id, start_time: '2026-11-09T14:00:00.000Z', end_time: null, status, distance_km: null, trip_score: 87 }));
         const response = await handler(request());
         assert.equal(response.status, 200);
         assert.equal(response.headers.get('Cache-Control'), 'no-store');
-        assert.deepEqual(await response.json(), { tripId, status, score: null, reason: null });
+
+        assert.deepEqual(await response.json(), { tripId, status, score: null, reason: null, startTime: '2026-11-09T14:00:00.000Z', endTime: null, distanceKm: null, durationSeconds: null });
     });
 }
 
 test('returns stored completed scores including zero on repeated requests', async () => {
     for (const score of [0, 87, 100, null]) {
-        const handler = createTripResultHandler(async id => ({ trip_id: id, status: 'Completed', trip_score: score }));
+        const handler = createTripResultHandler(async id => ({ trip_id: id, start_time: '2026-11-09T14:00:00.000Z', end_time: '2026-11-09T14:30:00.000Z', status: 'Completed', distance_km: 12.5, trip_score: score }));
         for (let attempt = 0; attempt < 2; attempt++) {
             assert.deepEqual(await (await handler(request())).json(), {
                 tripId, status: 'Completed', score,
                 reason: score === null ? 'unscored' : null,
+
+                startTime: '2026-11-09T14:00:00.000Z', endTime: '2026-11-09T14:30:00.000Z',
+                distanceKm: 12.5, durationSeconds: 1800,
             });
         }
     }
@@ -53,4 +58,25 @@ test('returns 503 without leaking storage error details', async () => {
     } finally {
         console.error = original;
     }
+});
+
+
+test('returns the trip detail fields with the computed duration', async () => {
+    const handler = createTripResultHandler(async id => ({
+        trip_id: id,
+        start_time: '2026-11-09T09:15:00.000Z',
+        end_time: '2026-11-09T09:45:30.000Z',
+        status: 'Completed',
+        distance_km: 8.75,
+        trip_score: 92,
+    }));
+    const response = await handler(request());
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+        tripId, status: 'Completed', score: 92, reason: null,
+        startTime: '2026-11-09T09:15:00.000Z',
+        endTime: '2026-11-09T09:45:30.000Z',
+        distanceKm: 8.75,
+        durationSeconds: 1830,
+    });
 });
