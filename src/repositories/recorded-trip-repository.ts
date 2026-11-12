@@ -1,23 +1,8 @@
+import type { RecordedTripResult } from '../types/recorded-trip.js';
+export type { RecordedTripResult } from '../types/recorded-trip.js';
 import { supabase } from '../lib/supabase.js';
 import { tripFields, type Trip } from '../types/trip.js';
 import type { RecordedTripSample } from '../services/trip-scoring.js';
-export type RecordedTripResult =
-    | { status: 'NotFound' }
-    | { status: 'NotReady' }
-    | {
-    status: 'Unscored';
-    score: null;
-    reason: 'NO_GPS_READINGS';
-}
-    | {
-    status: 'Ready';
-    input: {
-        tripId: string;
-        distanceKm: number | null;
-        samples: RecordedTripSample[];
-    };
-};
-
 const pageSize = 500;
 
 export async function readRecordedTripData(

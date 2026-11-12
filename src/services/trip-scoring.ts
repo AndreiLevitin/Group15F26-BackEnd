@@ -1,3 +1,4 @@
+import { gpsTimestampMillis, hasValidCoordinates } from './gps-validation.ts';
 import type { TripScoringConfig } from "../config/trip-scoring-config.ts";
 export interface RecordedTripSample {
     sample_id: string;
@@ -85,34 +86,6 @@ function validateConfig(config: TripScoringConfig): void {
     if (config.fallbackThresholdKmh <= 0) throw new RangeError('Fallback threshold must be positive');
 }
 
-function timestampMillis(value: string): number {
-    // Require a timezone so the computer's local settings cannot change results.
-    const match =
-        /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/.exec(
-            value,
-        );
-
-    if (!match) return NaN;
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-
-    if (
-        month < 1 ||
-        month > 12 ||
-        day < 1 ||
-        day > daysInMonth ||
-        Number(match[4]) > 23 ||
-        Number(match[5]) > 59 ||
-        Number(match[6]) > 59
-    ) {
-        return NaN;
-    }
-
-    return Date.parse(value);
-}
-
 export function calculateTripScore(
     input: TripScoringInput,
     config: TripScoringConfig,
@@ -150,17 +123,12 @@ export function calculateTripScore(
     const readingByTimestamp = new Map<number, number>();
 
     for (const [index, sample] of input.samples.entries()) {
-        const time = timestampMillis(sample.recorded_at);
-        const { latitude, longitude, speed_kmh: speed } = sample;
+        const time = gpsTimestampMillis(sample.recorded_at);
+        const { speed_kmh: speed } = sample;
 
         if (
             !Number.isFinite(time) ||
-            !isFiniteNumber(latitude) ||
-            latitude < -90 ||
-            latitude > 90 ||
-            !isFiniteNumber(longitude) ||
-            longitude < -180 ||
-            longitude > 180 ||
+            !hasValidCoordinates(sample) ||
             !isFiniteNumber(speed) ||
             speed < 0
         ) {

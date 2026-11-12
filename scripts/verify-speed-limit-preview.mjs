@@ -61,6 +61,7 @@ try {
   count(l.sample_id) AS enriched_samples,
   count(*) FILTER (WHERE l.lookup_status = 'available') AS with_limit,
   count(*) FILTER (WHERE l.lookup_status IN ('missing', 'unmatched', 'insufficient_trace')) AS without_limit,
+  count(*) FILTER (WHERE l.lookup_status = 'invalid_sample') AS invalid_samples,
   array_agg(DISTINCT l.provider) AS providers,
   min(l.fetched_at) AS first_fetch, max(l.fetched_at) AS last_fetch
 FROM public.trip_data_points d

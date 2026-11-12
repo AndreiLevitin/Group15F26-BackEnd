@@ -46,7 +46,7 @@ ALTER TABLE public.trip_sample_scoring ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.trip_scoring_results, public.trip_sample_scoring FROM anon, authenticated;
 GRANT ALL ON public.trip_scoring_results, public.trip_sample_scoring TO service_role;
 
-CREATE FUNCTION public.save_trip_scoring_result(
+CREATE OR REPLACE FUNCTION public.save_trip_scoring_result(
     p_trip_id UUID, p_result JSONB, p_config JSONB, p_distance_km NUMERIC
 ) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
@@ -113,34 +113,8 @@ BEGIN
         RAISE EXCEPTION 'Inconsistent scoring counts';
     END IF;
 
-    -- Verify thresholds really came from this sample's stored limit or final fallback.
-    IF EXISTS (
-        SELECT 1 FROM public.trip_sample_scoring s
-        JOIN public.trip_data_points d USING (sample_id, trip_id)
-        LEFT JOIN public.trip_sample_speed_limits l USING (sample_id, trip_id)
-        WHERE s.trip_id = p_trip_id AND s.status = 'used' AND (
-            s.used_fallback IS DISTINCT FROM (l.speed_limit_kmh IS NULL)
-            OR s.speed_limit_kmh_used IS DISTINCT FROM coalesce(l.speed_limit_kmh, cfg_fallback)
-            OR s.tolerance_kmh_used IS DISTINCT FROM CASE WHEN l.speed_limit_kmh IS NULL THEN 0 ELSE cfg_tolerance END
-            OR s.is_speeding IS DISTINCT FROM (d.speed_kmh > s.threshold_kmh)
-        )
-    ) THEN RAISE EXCEPTION 'Threshold does not match stored road limit'; END IF;
-
-    -- Event counting uses chronological representative readings, never segment count.
-    IF EXISTS (
-        SELECT 1 FROM (
-            SELECT s.starts_event, s.is_speeding,
-                lag(s.is_speeding, 1, false) OVER (ORDER BY d.recorded_at, d.sample_id) AS previous_speeding
-            FROM public.trip_sample_scoring s JOIN public.trip_data_points d USING (sample_id, trip_id)
-            WHERE s.trip_id = p_trip_id AND s.status = 'used'
-        ) checks WHERE starts_event IS DISTINCT FROM (is_speeding AND NOT previous_speeding)
-    ) THEN RAISE EXCEPTION 'Invalid speeding event boundaries'; END IF;
-    IF EXISTS (
-        SELECT d.recorded_at FROM public.trip_sample_scoring s
-        JOIN public.trip_data_points d USING (sample_id, trip_id)
-        WHERE s.trip_id = p_trip_id AND s.status = 'used'
-        GROUP BY d.recorded_at HAVING count(*) > 1
-    ) THEN RAISE EXCEPTION 'Duplicate timestamps were scored twice'; END IF;
+    -- TypeScript owns threshold selection, duplicate policy and event grouping.
+    -- SQL owns atomic storage, sample identity, constraints and audit counts.
 
     UPDATE public.trips SET trip_score = (p_result->>'score')::numeric, status = 'Completed',
         distance_km = coalesce(p_distance_km, distance_km)

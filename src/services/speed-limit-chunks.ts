@@ -4,11 +4,12 @@ import { gpsDistanceKm } from './gps-distance.ts';
 /** Straight-line distance is an estimate; actual matched-distance caps are checked separately. */
 export function chunkSpeedLimitTrace(
     samples: readonly SpeedLimitSample[],
-    maxPoints = 4900,
-    maxDistanceKm = 80,
+    options: { maxPoints: number; maxDistanceKm: number; breakDistanceKm: number },
 ): SpeedLimitSample[][] {
-    if (!Number.isInteger(maxPoints) || maxPoints < 2 || maxPoints > 5000 ||
-        !Number.isFinite(maxDistanceKm) || maxDistanceKm <= 0 || maxDistanceKm >= 100) {
+    const { maxPoints, maxDistanceKm, breakDistanceKm } = options;
+    if (!Number.isInteger(maxPoints) || maxPoints < 2 ||
+        !Number.isFinite(maxDistanceKm) || maxDistanceKm <= 0 ||
+        !Number.isFinite(breakDistanceKm) || breakDistanceKm <= 0 || breakDistanceKm > maxDistanceKm) {
         throw new Error('Invalid trace chunk limits.');
     }
     const chunks: SpeedLimitSample[][] = [];
@@ -17,9 +18,8 @@ export function chunkSpeedLimitTrace(
     for (const point of samples) {
         const previous = chunk.at(-1);
         const leg = previous ? gpsDistanceKm(previous, point) : 0;
-        // TomTom permits at most 6 km road distance between consecutive points.
-        // Split obvious GPS gaps rather than routing across them.
-        if (previous && leg >= 5) {
+        // Provider-specific gap policy is supplied by the caller.
+        if (previous && leg >= breakDistanceKm) {
             chunks.push(chunk);
             chunk = [point];
             distance = 0;

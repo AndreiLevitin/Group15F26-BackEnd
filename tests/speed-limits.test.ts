@@ -23,7 +23,7 @@ function adapter(mock: typeof fetch, maxRequests = 8) {
 
 test('point cap splits with one overlapping sample and loses no original ID', () => {
     const samples = Array.from({ length: 5001 }, (_, i) => point(i));
-    const chunks = chunkSpeedLimitTrace(samples);
+    const chunks = chunkSpeedLimitTrace(samples, { maxPoints: 4900, maxDistanceKm: 80, breakDistanceKm: 5 });
     assert.deepEqual(chunks.map(c => c.length), [4900, 102]);
     assert.equal(chunks[0]!.at(-1)!.sampleId, chunks[1]![0]!.sampleId);
     assert.equal(new Set(chunks.flat().map(s => s.sampleId)).size, samples.length);
@@ -31,10 +31,10 @@ test('point cap splits with one overlapping sample and loses no original ID', ()
 
 test('distance cap splits even below point cap; obvious GPS gaps are not bridged', () => {
     const samples = Array.from({ length: 100 }, (_, i) => point(i, -80 + i * 0.02));
-    const chunks = chunkSpeedLimitTrace(samples);
+    const chunks = chunkSpeedLimitTrace(samples, { maxPoints: 4900, maxDistanceKm: 80, breakDistanceKm: 5 });
     assert.ok(chunks.length > 1);
     assert.ok(chunks.every(c => c.length < 100));
-    assert.deepEqual(chunkSpeedLimitTrace([point(0), point(1, -79)]).map(c => c.length), [1, 1]);
+    assert.deepEqual(chunkSpeedLimitTrace([point(0), point(1, -79)], { maxPoints: 4900, maxDistanceKm: 80, breakDistanceKm: 5 }).map(c => c.length), [1, 1]);
 });
 
 test('maps by routeIndex and sample ID; duplicate timestamps remain separate samples', async () => {
@@ -153,4 +153,49 @@ test('server configuration is opt-in, validates bounds and requires a key only w
     const env = { TRIP_SPEED_LIMIT_ENRICHMENT_ENABLED: 'true', TOMTOM_API_KEY: 'secret' };
     assert.equal(loadSpeedLimitConfig(env)!.apiKey, 'secret');
     assert.throws(() => loadSpeedLimitConfig({ ...env, TOMTOM_MAX_REQUESTS_PER_TRIP: '100' }));
+});
+
+test('invalid GPS samples are retained as invalid_sample without being sent to the provider', async () => {
+    const state = repository();
+    const invalid = { ...point(2), latitude: 91 };
+    state.repo.readSamples = async () => [point(0), invalid, point(1)];
+    let received: readonly SpeedLimitSample[] = [];
+    await enrichTripSpeedLimits('trip', { name: 'tomtom', fetchLimits: async samples => {
+        received = samples;
+        return samples.map(known);
+    } }, state.repo);
+    assert.deepEqual(received.map(s => s.sampleId), ['sample-0', 'sample-1']);
+    assert.equal(state.saved[0]!.length, 3);
+    assert.equal(state.saved[0]!.find(s => s.sampleId === invalid.sampleId)!.status, 'invalid_sample');
+});
+
+test('all-invalid GPS input does not call a provider and still stores explicit exclusions', async () => {
+    const state = repository();
+    state.repo.readSamples = async () => [{ ...point(0), latitude: 91 }, { ...point(1), recordedAt: 'invalid' }];
+    await enrichTripSpeedLimits('trip', { name: 'tomtom', fetchLimits: async () => assert.fail('No valid trace') }, state.repo);
+    assert.ok(state.saved[0]!.every(s => s.status === 'invalid_sample' && s.speedLimitKmh === null));
+});
+
+test('40,000-point input fails preflight without consuming provider quota, even on repeated attempts', async () => {
+    const samples = Array.from({ length: 40000 }, (_, i) => point(i, -80 + i * 0.000001));
+    let calls = 0;
+    const provider = adapter(async () => { calls++; return Response.json({}); });
+    for (let attempt = 0; attempt < 2; attempt++) {
+        await assert.rejects(provider.fetchLimits(samples), (e: unknown) =>
+            e instanceof SpeedLimitProviderError && e.code === 'request_limit' && !e.retryable);
+    }
+    assert.equal(calls, 0);
+});
+
+test('shared chunking has no vendor-specific 5000-point or 100-km limit', () => {
+    const samples = Array.from({ length: 6000 }, (_, i) => point(i));
+    assert.equal(chunkSpeedLimitTrace(samples, { maxPoints: 10000, maxDistanceKm: 150, breakDistanceKm: 10 }).length, 1);
+});
+
+test('HTTP diagnostics distinguish authentication, quota and temporary failures without leaking response data', async () => {
+    for (const [status, code, retryable] of [[401, 'authentication_failed', false], [429, 'quota_exceeded', true], [503, 'request_failed', true]] as const) {
+        await assert.rejects(adapter(async () => new Response('secret-test-key', { status })).fetchLimits([point(0), point(1)]),
+            (e: unknown) => e instanceof SpeedLimitProviderError && e.code === code && e.retryable === retryable &&
+                e.httpStatus === status && !e.message.includes('secret-test-key'));
+    }
 });

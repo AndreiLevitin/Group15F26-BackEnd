@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loadTripScoringConfig, scoreEndedTrip } from '../src/services/score-ended-trip.ts';
+import { scoreEndedTrip } from '../src/services/score-ended-trip.ts';
+import { loadTripScoringConfig } from '../src/config/trip-scoring-config.ts';
 import type { RecordedTripResult } from '../src/repositories/recorded-trip-repository.ts';
 import type { TripScoringResult } from '../src/services/trip-scoring.ts';
 import type { Trip } from '../src/types/trip.ts';

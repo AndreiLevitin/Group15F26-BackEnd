@@ -1,4 +1,5 @@
 import { gpsDistanceKm } from './gps-distance.ts';
+import { hasValidCoordinates, gpsTimestampMillis } from './gps-validation.ts';
 
 interface GpsPoint {
     recorded_at: string;
@@ -9,21 +10,16 @@ interface GpsPoint {
 export function calculateTripDistanceKm(points: readonly GpsPoint[]): number | null {
     const byTime = new Map<number, { latitude: number; longitude: number }>();
 
-    for (const { recorded_at, latitude, longitude } of points) {
-        const time = Date.parse(recorded_at);
+    for (const point of points) {
+        const time = gpsTimestampMillis(point.recorded_at);
         if (
             !Number.isFinite(time) ||
-            typeof latitude !== 'number' ||
-            !Number.isFinite(latitude) ||
-            Math.abs(latitude) > 90 ||
-            typeof longitude !== 'number' ||
-            !Number.isFinite(longitude) ||
-            Math.abs(longitude) > 180 ||
+            !hasValidCoordinates(point) ||
             byTime.has(time)
         ) {
             continue;
         }
-        byTime.set(time, { latitude, longitude });
+        byTime.set(time, { latitude: point.latitude, longitude: point.longitude });
     }
 
     const ordered = [...byTime.entries()].sort(([a], [b]) => a - b);

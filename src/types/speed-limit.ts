@@ -6,7 +6,7 @@ export interface SpeedLimitSample {
     longitude: number;
 }
 
-export type SpeedLimitStatus = 'available' | 'missing' | 'unmatched' | 'insufficient_trace';
+export type SpeedLimitStatus = 'available' | 'missing' | 'unmatched' | 'insufficient_trace' | 'invalid_sample';
 
 export interface SampleSpeedLimit {
     sampleId: string;

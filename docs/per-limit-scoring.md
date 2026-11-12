@@ -1,5 +1,11 @@
 # Per-limit speeding events — AB#73
 
+**Review follow-up:** 004 and 005 contain the final development schema.
+TypeScript owns scoring business rules; SQL validates audit structure without
+recomputing event semantics. Existing databases created from earlier versions
+need the targeted update described in [review decisions](review-72-73-decisions.md),
+not a second execution of the CREATE TABLE scripts.
+
 The end-trip flow now uses the limits stored by Task 72. No frontend API contract
 change, new provider call, or new penalty formula is introduced by scoring.
 
@@ -68,8 +74,9 @@ the legal posted limit is 85; the separate fetched limit remains null. Available
 limits retain Task 72 provider/fetch provenance in `trip_sample_speed_limits`.
 
 The RPC atomically stores decisions, config and score before setting Completed.
-It verifies complete sample identity/counts, threshold sources, speed comparisons
-and event boundaries. A failure rolls back all scoring writes. A completed trip
+It verifies complete sample identity/counts and structural audit consistency.
+Threshold selection and event boundaries are calculated in TypeScript.
+A failure rolls back all scoring writes. A completed trip
 returns the old result without overwriting its score or audit rows, including
 trips recorded before this task. A completed end-trip can be returned even if the
 new scoring variables are missing; no rescore is attempted.

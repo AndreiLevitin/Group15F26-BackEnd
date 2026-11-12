@@ -1,4 +1,4 @@
--- AB#73. Run after migrations 001–005 as SQL editor owner. Test rows roll back.
+-- AB#73. Run after migrations 001â€“005 as SQL editor owner. Test rows roll back.
 BEGIN;
 DO $$
 DECLARE
@@ -37,7 +37,7 @@ BEGIN
     BEGIN
         PERFORM public.save_trip_scoring_result(id,jsonb_set(payload,'{sampleDecisions}',decisions-'0'::integer),cfg,0.3);
         RAISE EXCEPTION 'TEST: partial decisions must fail';
-    EXCEPTION WHEN raise_exception THEN
+    EXCEPTION WHEN raise_exception OR check_violation THEN
         IF SQLERRM LIKE 'TEST:%' THEN RAISE; END IF;
     END;
     IF EXISTS (SELECT 1 FROM public.trip_scoring_results WHERE trip_id=id) THEN
@@ -45,10 +45,9 @@ BEGIN
     END IF;
     BEGIN
         PERFORM public.save_trip_scoring_result(id,
-            jsonb_set(jsonb_set(payload,'{sampleDecisions,2,thresholdKmh}','90'),
-                '{sampleDecisions,2,speedLimitKmhUsed}','90'),cfg,0.3);
-        RAISE EXCEPTION 'TEST: fallback 90 must fail';
-    EXCEPTION WHEN raise_exception THEN
+            jsonb_set(payload,'{sampleDecisions,2,thresholdKmh}','90'),cfg,0.3);
+        RAISE EXCEPTION 'TEST: inconsistent threshold audit must fail';
+    EXCEPTION WHEN raise_exception OR check_violation THEN
         IF SQLERRM LIKE 'TEST:%' THEN RAISE; END IF;
     END;
     first_result := public.save_trip_scoring_result(id,payload,cfg,0.3);
@@ -71,6 +70,34 @@ BEGIN
     END IF;
     IF has_function_privilege('anon','public.save_trip_scoring_result(uuid,jsonb,jsonb,numeric)','EXECUTE') THEN
         RAISE EXCEPTION 'TEST: frontend can write scoring results';
+    END IF;
+END $$;
+-- Invalid source GPS must survive enrichment as an exclusion, not block the trip
+-- and not be labelled fallback-scored. Requires the final 004/005 schema.
+DO $$
+DECLARE
+    id UUID := gen_random_uuid();
+    sample UUID := gen_random_uuid();
+    token UUID := gen_random_uuid();
+    cfg JSONB := '{"minValidReadings":5,"minDistanceKm":0.1,"speedingPenaltyPerEvent":2,"toleranceKmh":5,"fallbackThresholdKmh":85}';
+    payload JSONB;
+BEGIN
+    INSERT INTO public.trips(trip_id) VALUES (id);
+    INSERT INTO public.trip_data_points(sample_id,trip_id,recorded_at,speed_kmh,acceleration,latitude,longitude)
+        VALUES (sample,id,'2026-11-11T12:00:00Z',100,0,91,-80);
+    UPDATE public.trips SET status='Processing',end_time=now() WHERE trip_id=id;
+    PERFORM public.claim_trip_speed_limits(id,'invalid-trace','tomtom',token);
+    PERFORM public.complete_trip_speed_limits(id,token,
+        jsonb_build_array(jsonb_build_object('sampleId',sample,'recordedAt','2026-11-11T12:00:00Z','latitude',91,'longitude',-80)),
+        jsonb_build_array(jsonb_build_object('sampleId',sample,'speedLimitKmh',null,'status','invalid_sample',
+            'provider','tomtom','fetchedAt',now(),'providerSegmentId',null)));
+    payload := jsonb_build_object('scoringStatus','Unscored','score',null,'reason','INSUFFICIENT_READINGS',
+        'validReadings',0,'ignoredReadings',1,'duplicateTimestampReadings',0,
+        'sampleDecisions',jsonb_build_array(jsonb_build_object('sampleId',sample,'status','ignored',
+            'speedLimitKmhUsed',null,'toleranceKmhUsed',null,'thresholdKmh',null,'usedFallback',null,'isSpeeding',null,'startsEvent',null)));
+    PERFORM public.save_trip_scoring_result(id,payload,cfg,null);
+    IF NOT EXISTS (SELECT 1 FROM public.trip_sample_scoring WHERE sample_id=sample AND status='ignored' AND used_fallback IS NULL) THEN
+        RAISE EXCEPTION 'TEST: invalid GPS was not excluded';
     END IF;
 END $$;
 ROLLBACK;
