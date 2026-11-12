@@ -33,6 +33,8 @@ export function createTripResultHandler(findTripResult: FindTripResult) {
                 return json({ error: 'trip_not_found', message: 'Trip was not found.' }, 404);
             }
 
+            // durationSeconds is worked out from the start and end times; it
+            // stays null while a trip has no end_time yet.
             const durationSeconds = trip.end_time
                 ? Math.round((Date.parse(trip.end_time) - Date.parse(trip.start_time)) / 1000)
                 : null;
