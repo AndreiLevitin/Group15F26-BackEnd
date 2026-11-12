@@ -1,10 +1,24 @@
+import { gpsTimestampMillis, hasValidCoordinates } from './gps-validation.ts';
 import type { TripScoringConfig } from "../config/trip-scoring-config.ts";
 export interface RecordedTripSample {
+    sample_id: string;
     trip_id: string;
     recorded_at: string;
     latitude: number | null;
     longitude: number | null;
     speed_kmh: number | null;
+    /** Null means no stored posted limit, not a zero limit or a routing speed. */
+    road_speed_limit_kmh: number | null;
+}
+export interface SampleScoringDecision {
+    sampleId: string;
+    status: 'used' | 'duplicate' | 'ignored' | 'unscored';
+    speedLimitKmhUsed: number | null;
+    toleranceKmhUsed: number | null;
+    thresholdKmh: number | null;
+    usedFallback: boolean | null;
+    isSpeeding: boolean | null;
+    startsEvent: boolean | null;
 }
 export interface TripScoringInput {
     tripId: string;
@@ -13,6 +27,7 @@ export interface TripScoringInput {
 }
 
 export type UnscoredReason =
+    | "NO_GPS_READINGS"
     | "TRIP_ID_MISMATCH"
     | "INSUFFICIENT_READINGS"
     | "MISSING_OR_INVALID_DISTANCE"
@@ -21,6 +36,7 @@ interface ReadingCounts {
     validReadings: number;
     ignoredReadings: number;
     duplicateTimestampReadings: number;
+    sampleDecisions: SampleScoringDecision[];
 }
 
 export type TripScoringResult = ReadingCounts & (
@@ -57,7 +73,7 @@ function validateConfig(config: TripScoringConfig): void {
     }
 
     const keys = [
-        "speedLimitKmh",
+        "fallbackThresholdKmh",
         "toleranceKmh",
         "speedingPenaltyPerEvent",
     ] as const;
@@ -67,37 +83,7 @@ function validateConfig(config: TripScoringConfig): void {
         }
     }
 
-    if (!Number.isFinite(config.speedLimitKmh + config.toleranceKmh)) {
-        throw new RangeError("The speeding threshold must be finite");
-    }
-}
-
-function timestampMillis(value: string): number {
-    // Require a timezone so the computer's local settings cannot change results.
-    const match =
-        /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/.exec(
-            value,
-        );
-
-    if (!match) return NaN;
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-
-    if (
-        month < 1 ||
-        month > 12 ||
-        day < 1 ||
-        day > daysInMonth ||
-        Number(match[4]) > 23 ||
-        Number(match[5]) > 59 ||
-        Number(match[6]) > 59
-    ) {
-        return NaN;
-    }
-
-    return Date.parse(value);
+    if (config.fallbackThresholdKmh <= 0) throw new RangeError('Fallback threshold must be positive');
 }
 
 export function calculateTripScore(
@@ -110,6 +96,9 @@ export function calculateTripScore(
         validReadings: 0,
         ignoredReadings: 0,
         duplicateTimestampReadings: 0,
+        sampleDecisions: input.samples.map(sample => ({ sampleId: sample.sample_id,
+            status: 'ignored', speedLimitKmhUsed: null, toleranceKmhUsed: null, thresholdKmh: null,
+            usedFallback: null, isSpeeding: null, startsEvent: null })),
     };
 
     const unscored = (reason: UnscoredReason): TripScoringResult => ({
@@ -127,20 +116,19 @@ export function calculateTripScore(
         return unscored("TRIP_ID_MISMATCH");
     }
 
-    const speedByTimestamp = new Map<number, number>();
+    const sampleIds = new Set(input.samples.map(s => s.sample_id));
+    if (sampleIds.size !== input.samples.length || input.samples.some(s => !s.sample_id)) {
+        throw new Error('Scoring samples must have unique stable IDs.');
+    }
+    const readingByTimestamp = new Map<number, number>();
 
-    for (const sample of input.samples) {
-        const time = timestampMillis(sample.recorded_at);
-        const { latitude, longitude, speed_kmh: speed } = sample;
+    for (const [index, sample] of input.samples.entries()) {
+        const time = gpsTimestampMillis(sample.recorded_at);
+        const { speed_kmh: speed } = sample;
 
         if (
             !Number.isFinite(time) ||
-            !isFiniteNumber(latitude) ||
-            latitude < -90 ||
-            latitude > 90 ||
-            !isFiniteNumber(longitude) ||
-            longitude < -180 ||
-            longitude > 180 ||
+            !hasValidCoordinates(sample) ||
             !isFiniteNumber(speed) ||
             speed < 0
         ) {
@@ -148,21 +136,30 @@ export function calculateTripScore(
             continue;
         }
 
-        // Proposed duplicate policy: count each timestamp once,
-        // keeping the highest valid speed at that instant.
-        const previous = speedByTimestamp.get(time);
+        if (sample.road_speed_limit_kmh !== null && (!isFiniteNumber(sample.road_speed_limit_kmh) ||
+            sample.road_speed_limit_kmh <= 0 || !Number.isFinite(sample.road_speed_limit_kmh + config.toleranceKmh))) {
+            throw new Error('Invalid stored road speed limit.');
+        }
+        // Keep the highest valid speed with THAT sample's limit. Equal-speed ties
+        // use the lowest stable ID, so shuffled input cannot change the result.
+        const previous = readingByTimestamp.get(time);
 
         if (previous !== undefined) {
             counts.duplicateTimestampReadings++;
+            const previousSample = input.samples[previous]!;
+            if (speed < previousSample.speed_kmh! || (speed === previousSample.speed_kmh &&
+                sample.sample_id >= previousSample.sample_id)) {
+                counts.sampleDecisions[index]!.status = 'duplicate';
+                continue;
+            }
+            counts.sampleDecisions[previous]!.status = 'duplicate';
         }
 
-        speedByTimestamp.set(
-            time,
-            previous === undefined ? speed : Math.max(previous, speed),
-        );
+        counts.sampleDecisions[index]!.status = 'unscored';
+        readingByTimestamp.set(time, index);
     }
 
-    counts.validReadings = speedByTimestamp.size;
+    counts.validReadings = readingByTimestamp.size;
 
     if (counts.validReadings < config.minValidReadings) {
         return unscored("INSUFFICIENT_READINGS");
@@ -176,20 +173,27 @@ export function calculateTripScore(
         return unscored("BELOW_MINIMUM_DISTANCE");
     }
 
-    const readings = [...speedByTimestamp.entries()].sort(
+    const readings = [...readingByTimestamp.entries()].sort(
         ([timeA], [timeB]) => timeA - timeB,
     );
-
-    const threshold = config.speedLimitKmh + config.toleranceKmh;
 
     let speedingEvents = 0;
     let wasSpeeding = false;
 
-    for (const [, speed] of readings) {
-        const isSpeeding = speed > threshold;
+    for (const [, index] of readings) {
+        const sample = input.samples[index]!;
+        const usedFallback = sample.road_speed_limit_kmh === null;
+        const limit = sample.road_speed_limit_kmh ?? config.fallbackThresholdKmh;
+        const tolerance = usedFallback ? 0 : config.toleranceKmh;
+        const threshold = limit + tolerance;
+        const isSpeeding = sample.speed_kmh! > threshold;
+        const startsEvent = isSpeeding && !wasSpeeding;
+        counts.sampleDecisions[index] = { sampleId: sample.sample_id, status: 'used',
+            speedLimitKmhUsed: limit, toleranceKmhUsed: tolerance, thresholdKmh: threshold,
+            usedFallback, isSpeeding, startsEvent };
 
         // Consecutive speeding readings form one event.
-        if (isSpeeding && !wasSpeeding) {
+        if (startsEvent) {
             speedingEvents++;
         }
 

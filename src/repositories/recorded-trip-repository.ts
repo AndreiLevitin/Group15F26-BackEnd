@@ -1,29 +1,8 @@
+import type { RecordedTripResult } from '../types/recorded-trip.js';
+export type { RecordedTripResult } from '../types/recorded-trip.js';
 import { supabase } from '../lib/supabase.js';
 import { tripFields, type Trip } from '../types/trip.js';
-interface RecordedGpsSample {
-    trip_id: string;
-    recorded_at: string;
-    latitude: number | null;
-    longitude: number | null;
-    speed_kmh: number | null;
-}
-export type RecordedTripResult =
-    | { status: 'NotFound' }
-    | { status: 'NotReady' }
-    | {
-    status: 'Unscored';
-    score: null;
-    reason: 'NO_GPS_READINGS';
-}
-    | {
-    status: 'Ready';
-    input: {
-        tripId: string;
-        distanceKm: number | null;
-        samples: RecordedGpsSample[];
-    };
-};
-
+import type { RecordedTripSample } from '../services/trip-scoring.js';
 const pageSize = 500;
 
 export async function readRecordedTripData(
@@ -52,13 +31,13 @@ export async function readRecordedTripData(
     const distanceKm = typeof storedDistance === 'number' &&
         Number.isFinite(storedDistance) && storedDistance > 0 ? storedDistance : null;
 
-    const samples: RecordedGpsSample[] = [];
+    const samples: RecordedTripSample[] = [];
     let offset = 0;
 
     while (true) {
         const { data: page, error: sampleError } = await supabase
             .from('trip_data_points')
-            .select('trip_id, recorded_at, latitude, longitude, speed_kmh')
+            .select('sample_id, trip_id, recorded_at, latitude, longitude, speed_kmh, limit:trip_sample_speed_limits(speed_limit_kmh, lookup_status)')
             .eq('trip_id', trip.trip_id)
             .not('latitude', 'is', null)
             .not('longitude', 'is', null)
@@ -72,7 +51,20 @@ export async function readRecordedTripData(
 
         if (!page?.length) break;
 
-        samples.push(...(page as RecordedGpsSample[]));
+        for (const row of page) {
+            // Supabase relationship cardinality may be represented as an object or
+            // singleton array. Never associate road limits by timestamp or row offset.
+            const raw = row.limit as unknown;
+            if (Array.isArray(raw) && raw.length > 1) throw new Error('Multiple limits for one GPS sample.');
+            const limit = (Array.isArray(raw) ? raw[0] : raw) as
+                { speed_limit_kmh: number | null; lookup_status: string } | null | undefined;
+            if (limit && ((limit.lookup_status === 'available') !== (limit.speed_limit_kmh !== null))) {
+                throw new Error('Invalid stored speed-limit status.');
+            }
+            samples.push({ sample_id: row.sample_id, trip_id: row.trip_id, recorded_at: row.recorded_at,
+                latitude: row.latitude, longitude: row.longitude, speed_kmh: row.speed_kmh,
+                road_speed_limit_kmh: limit?.speed_limit_kmh ?? null });
+        }
         offset += page.length;
     }
 

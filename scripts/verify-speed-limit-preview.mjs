@@ -61,11 +61,19 @@ try {
   count(l.sample_id) AS enriched_samples,
   count(*) FILTER (WHERE l.lookup_status = 'available') AS with_limit,
   count(*) FILTER (WHERE l.lookup_status IN ('missing', 'unmatched', 'insufficient_trace')) AS without_limit,
+  count(*) FILTER (WHERE l.lookup_status = 'invalid_sample') AS invalid_samples,
   array_agg(DISTINCT l.provider) AS providers,
   min(l.fetched_at) AS first_fetch, max(l.fetched_at) AS last_fetch
 FROM public.trip_data_points d
 LEFT JOIN public.trip_sample_speed_limits l USING (sample_id, trip_id)
 WHERE d.trip_id = '${tripId}' AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL;`);
+    console.log(`-- Task 73: verify the actual config, events and fallback-scored portions.
+SELECT * FROM public.trip_scoring_results WHERE trip_id = '${tripId}';
+SELECT status, used_fallback, count(*) AS samples,
+  count(*) FILTER (WHERE is_speeding) AS speeding_samples,
+  count(*) FILTER (WHERE starts_event) AS events
+FROM public.trip_sample_scoring WHERE trip_id = '${tripId}'
+GROUP BY status, used_fallback;`);
 } catch (error) {
     console.error(error instanceof Error ? error.message : 'Preview verification failed.');
     if (tripId) console.error(`Created test trip: ${tripId}. Inspect its state before retrying; do not overwrite its raw samples.`);

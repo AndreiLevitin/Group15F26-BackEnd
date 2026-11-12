@@ -14,7 +14,7 @@ CREATE TABLE public.trip_sample_speed_limits (
     sample_id UUID PRIMARY KEY REFERENCES public.trip_data_points(sample_id) ON DELETE CASCADE,
     trip_id UUID NOT NULL REFERENCES public.trips(trip_id),
     speed_limit_kmh NUMERIC CHECK (speed_limit_kmh > 0),
-    lookup_status TEXT NOT NULL CHECK (lookup_status IN ('available', 'missing', 'unmatched', 'insufficient_trace')),
+    lookup_status TEXT NOT NULL CHECK (lookup_status IN ('available', 'missing', 'unmatched', 'insufficient_trace', 'invalid_sample')),
     provider TEXT NOT NULL,
     fetched_at TIMESTAMPTZ NOT NULL,
     provider_segment_id TEXT,

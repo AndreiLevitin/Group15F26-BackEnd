@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { SampleSpeedLimit, SpeedLimitProvider, SpeedLimitSample } from '../types/speed-limit.js';
+import { hasValidCoordinates, gpsTimestampMillis } from './gps-validation.ts';
+
+export class EnrichmentBusyError extends Error {
+    constructor() { super('Trip enrichment is in progress.'); }
+}
 
 export interface SpeedLimitRepository {
     readSamples(tripId: string): Promise<SpeedLimitSample[]>;
@@ -19,9 +24,16 @@ export async function enrichTripSpeedLimits(
     const token = randomUUID();
     const claim = await repository.claim(tripId, hash, provider.name, token);
     if (claim === 'cached') return;
-    if (claim === 'busy') throw new Error('Trip speed-limit enrichment is already in progress.');
+    if (claim === 'busy') throw new EnrichmentBusyError();
     try {
-        const limits = await provider.fetchLimits(samples);
+        const valid = samples.filter(s => hasValidCoordinates(s) && Number.isFinite(gpsTimestampMillis(s.recordedAt)));
+        const limits = valid.length ? await provider.fetchLimits(valid) : [];
+        for (const sample of samples) {
+            if (!hasValidCoordinates(sample) || !Number.isFinite(gpsTimestampMillis(sample.recordedAt))) {
+                limits.push({ sampleId: sample.sampleId, speedLimitKmh: null, status: 'invalid_sample',
+                    provider: provider.name, fetchedAt: new Date().toISOString(), providerSegmentId: null });
+            }
+        }
         const byId = new Map(limits.map(limit => [limit.sampleId, limit]));
         if (limits.length !== samples.length || byId.size !== samples.length || samples.some(s => {
             const limit = byId.get(s.sampleId);

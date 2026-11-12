@@ -1,5 +1,14 @@
 # Trip speed-limit enrichment — AB#72
 
+**Review follow-up:** invalid GPS readings are now stored as `invalid_sample`
+and excluded before provider calls. Oversized traces fail preflight without calls.
+The final schema is in 004/005; existing databases need a targeted update.
+See [review decisions](review-72-73-decisions.md).
+
+**Current scoring:** Task 73 now consumes these stored limits; see
+[`per-limit-scoring.md`](per-limit-scoring.md). Statements below describing the
+unchanged 80+5 scoring describe the Task 72 implementation boundary.
+
 When enabled, `POST /api/end-trip` enriches a trip's stored GPS samples **before**
 the existing scoring call. The phone sends the same raw samples as before; neither
 the TomTom key nor provider requests go through the frontend. No new public route.

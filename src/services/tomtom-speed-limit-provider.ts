@@ -1,13 +1,8 @@
+import { SpeedLimitProviderError } from '../types/speed-limit-errors.ts';
+export { SpeedLimitProviderError } from '../types/speed-limit-errors.ts';
 import type { SampleSpeedLimit, SpeedLimitProvider, SpeedLimitSample } from '../types/speed-limit.js';
 import { chunkSpeedLimitTrace } from './speed-limit-chunks.ts';
-
-export class SpeedLimitProviderError extends Error {
-    readonly code: 'request_failed' | 'invalid_response' | 'request_limit';
-    constructor(code: 'request_failed' | 'invalid_response' | 'request_limit') {
-        super(`Speed limit provider: ${code}`);
-        this.code = code;
-    }
-}
+import { hasValidCoordinates, gpsTimestampMillis } from './gps-validation.ts';
 
 interface TomTomResponse {
     route: { properties: { id?: string; speedLimits?: { value?: number; unit?: string; type?: string } | null } }[];
@@ -23,6 +18,7 @@ interface Options {
 }
 
 const fields = '{projectedPoints{properties{routeIndex,snapResult}},route{properties{id,speedLimits{value,unit,type}}}}';
+const traceLimits = { maxPoints: 4900, maxDistanceKm: 80, breakDistanceKm: 5 };
 
 /** Stateless adapter. One in-flight request per trip; maxRequests also bounds splitting/retries. */
 export class TomTomSpeedLimitProvider implements SpeedLimitProvider {
@@ -44,11 +40,15 @@ export class TomTomSpeedLimitProvider implements SpeedLimitProvider {
         });
         const ids = new Set<string>();
         for (const s of samples) {
-            if (ids.has(s.sampleId) || !Number.isFinite(s.latitude) || Math.abs(s.latitude) > 90 ||
-                !Number.isFinite(s.longitude) || Math.abs(s.longitude) > 180 || !Number.isFinite(Date.parse(s.recordedAt))) {
+            if (ids.has(s.sampleId) || !hasValidCoordinates(s) || !Number.isFinite(gpsTimestampMillis(s.recordedAt))) {
                 throw new Error('Invalid GPS trace.');
             }
             ids.add(s.sampleId);
+        }
+        const chunks = chunkSpeedLimitTrace(samples, traceLimits);
+        // Deterministic oversized input must not consume quota again on every retry.
+        if (chunks.filter(c => c.length >= 2).length > this.options.maxRequests) {
+            throw new SpeedLimitProviderError('request_limit');
         }
         const results = new Map<string, SampleSpeedLimit>();
         let requests = 0;
@@ -79,9 +79,10 @@ export class TomTomSpeedLimitProvider implements SpeedLimitProvider {
                     })) }),
                     signal: AbortSignal.timeout(this.options.timeoutMs),
                 });
-            } catch {
+            } catch (error) {
                 // Never retain an underlying URL/error that could contain the API key.
-                throw new SpeedLimitProviderError('request_failed');
+                throw new SpeedLimitProviderError(error instanceof Error &&
+                    ['AbortError', 'TimeoutError'].includes(error.name) ? 'timeout' : 'request_failed');
             }
             // TomTom 400 can include routed-distance/point-gap limits not predictable from GPS distance.
             // Bounded subdivision retries smaller traces; a two-point rejection remains a failure.
@@ -91,7 +92,11 @@ export class TomTomSpeedLimitProvider implements SpeedLimitProvider {
                 await runChunk(chunk.slice(middle));
                 return;
             }
-            if (!response.ok) throw new SpeedLimitProviderError('request_failed');
+            if (!response.ok) {
+                const code = response.status === 401 || response.status === 403 ? 'authentication_failed' :
+                    response.status === 429 ? 'quota_exceeded' : response.status === 400 ? 'invalid_trace' : 'request_failed';
+                throw new SpeedLimitProviderError(code, response.status);
+            }
             let result: TomTomResponse;
             try {
                 result = await response.json() as TomTomResponse;
@@ -121,7 +126,7 @@ export class TomTomSpeedLimitProvider implements SpeedLimitProvider {
                 if (!results.has(s.sampleId)) results.set(s.sampleId, normalized);
             });
         };
-        for (const chunk of chunkSpeedLimitTrace(samples)) await runChunk(chunk);
+        for (const chunk of chunks) await runChunk(chunk);
         return samples.map(s => results.get(s.sampleId)!);
     }
 }
