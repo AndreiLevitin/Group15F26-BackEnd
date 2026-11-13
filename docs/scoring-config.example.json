@@ -1,0 +1,13 @@
+{
+  "minValidReadings": 5,
+  "minDistanceKm": 0.1,
+  "toleranceKmh": 5,
+  "maxIntervalSeconds": 3,
+  "minMovingSpeedKmh": 5,
+  "bands": [
+    { "fromKmh": 0, "score": 80 },
+    { "fromKmh": 16, "score": 60 },
+    { "fromKmh": 30, "score": 40 },
+    { "fromKmh": 50, "score": 0 }
+  ]
+}

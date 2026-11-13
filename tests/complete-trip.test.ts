@@ -8,7 +8,8 @@ import { logTripCompletion } from '../src/lib/trip-log.ts';
 import type { Trip } from '../src/types/trip.ts';
 import type { SampleSpeedLimit } from '../src/types/speed-limit.ts';
 
-const config = { minValidReadings: 5, minDistanceKm: 0.1, speedingPenaltyPerEvent: 2, toleranceKmh: 5, fallbackThresholdKmh: 85 };
+const config = { minValidReadings: 5, minDistanceKm: 0.1, toleranceKmh: 5, maxIntervalSeconds: 3, minMovingSpeedKmh: 5,
+    bands: [{fromKmh:0,score:80},{fromKmh:16,score:60},{fromKmh:30,score:40},{fromKmh:50,score:0}] };
 const trip: Trip = { trip_id: 'trip', start_time: '', end_time: '2026-11-11T12:00:00Z', status: 'Processing', trip_score: null, distance_km: 0.3 };
 function dependencies() {
     let state = { ...trip };
@@ -100,12 +101,13 @@ test('whole use case filters invalid GPS, enriches valid readings, scores and sa
     s.deps.scoring.saveTripScore = async (id, result, cfg, distance) => {
         assert.equal(result.ignoredReadings, 1);
         assert.equal(result.sampleDecisions[5]!.usedFallback, null);
-        assert.equal(result.sampleDecisions.filter(r => r.usedFallback).length, 2);
+        assert.equal(result.sampleDecisions.filter(r => r.usedFallback).length, 0);
+        assert.equal(result.quality.evaluatedReadings, 2);
         return save(id, result, cfg, distance);
     };
     const result = await completeTrip('trip', s.deps);
     assert.equal(result.kind, 'Completed');
-    if (result.kind === 'Completed') assert.equal(result.trip.trip_score, 87);
+    if (result.kind === 'Completed') assert.equal(result.trip.trip_score, null);
     assert.equal(stored.find(l => l.sampleId === 's5')!.status, 'invalid_sample');
     assert.equal(providerCalls, 1);
     await completeTrip('trip', s.deps);

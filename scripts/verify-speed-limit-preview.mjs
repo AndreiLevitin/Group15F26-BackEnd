@@ -67,13 +67,24 @@ try {
 FROM public.trip_data_points d
 LEFT JOIN public.trip_sample_speed_limits l USING (sample_id, trip_id)
 WHERE d.trip_id = '${tripId}' AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL;`);
-    console.log(`-- Task 73: verify the actual config, events and fallback-scored portions.
+    console.log(`-- Task 73: verify the model, actual config, events and excluded portions.
 SELECT * FROM public.trip_scoring_results WHERE trip_id = '${tripId}';
 SELECT status, used_fallback, count(*) AS samples,
   count(*) FILTER (WHERE is_speeding) AS speeding_samples,
   count(*) FILTER (WHERE starts_event) AS events
 FROM public.trip_sample_scoring WHERE trip_id = '${tripId}'
-GROUP BY status, used_fallback;`);
+GROUP BY status, used_fallback;
+SELECT exclusion_reason, count(*) AS intervals, sum(duration_seconds) AS seconds
+FROM public.trip_interval_scoring WHERE trip_id = '${tripId}' GROUP BY exclusion_reason;
+SELECT r.score AS saved_score,
+  CASE WHEN r.score IS NOT NULL AND sum(i.duration_seconds) FILTER (WHERE i.score IS NOT NULL) > 0 THEN
+    CASE WHEN sum(i.score * i.duration_seconds) = 0 THEN 0 ELSE
+      greatest(1, round(sum(i.score * i.duration_seconds) /
+        sum(i.duration_seconds) FILTER (WHERE i.score IS NOT NULL))) END
+  END AS calculated_score
+FROM public.trip_scoring_results r
+LEFT JOIN public.trip_interval_scoring i USING (trip_id)
+WHERE r.trip_id = '${tripId}' GROUP BY r.trip_id;`);
 } catch (error) {
     console.error(error instanceof Error ? error.message : 'Preview verification failed.');
     if (tripId) console.error(`Created test trip: ${tripId}. Inspect its state before retrying; do not overwrite its raw samples.`);

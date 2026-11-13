@@ -1,143 +1,149 @@
-# Per-limit speeding events — AB#73
+# Time-weighted speed bands - AB#73
 
-**Review follow-up:** 004 and 005 contain the final development schema.
-TypeScript owns scoring business rules; SQL validates audit structure without
-recomputing event semantics. Existing databases created from earlier versions
-need the targeted update described in [review decisions](review-72-73-decisions.md),
-not a second execution of the CREATE TABLE scripts.
-
-The end-trip flow now uses the limits stored by Task 72. No frontend API contract
-change, new provider call, or new penalty formula is introduced by scoring.
+The agreed revision of US #64 replaces event penalties and the 85 km/h fallback
+for newly completed trips. Old completed trips and their audit rows are immutable.
+Task #72 still enriches raw GPS from the database using the provider interface.
+The frontend contract remains a number or null; detail screens/export are future work.
 
 ## Rules
 
-- Join GPS readings to stored limits by `sample_id`, never by timestamp/index.
-- Available posted limit: `threshold = road limit + TRIP_SPEED_TOLERANCE_KMH`.
-- No stored numeric limit: `threshold = TRIP_FALLBACK_SPEED_THRESHOLD_KMH`.
-  The agreed fallback is **85 km/h as a final threshold**; no additional tolerance.
-- Speeding requires `speed > threshold`; equality is not speeding.
-- Consecutive speeding representative readings are one event, including across
-  road-limit changes and fallback portions. A non-speeding reading ends the event.
-- Invalid GPS/speed/time rows are ignored. They do not invent a normal reading
-  or split an existing event. No new time-gap/minimum-event-duration rule is added.
-- Duplicate timestamps still keep the highest valid speed. Its OWN stored limit
-  travels with it; equal-speed ties choose the lowest sample ID for determinism.
-  Other samples at that timestamp are marked `duplicate` and not scored twice.
-- Keep the existing formula and rounding:
-  `round(clamp(100 - penaltyPerEvent * speedingEvents / distanceKm, 0, 100))`.
-  The penalty continues to come from `TRIP_SPEEDING_PENALTY_PER_EVENT` (deployed
-  value 2); this task does not change it.
-- Minimum sample count and distance still gate scoring; insufficient trips keep
-  a null score. The minimum distance is inclusive.
+Excess is actual speed minus the posted limit, in km/h. At or below tolerance,
+score 100. Otherwise select the highest inclusive `fromKmh` band. Do not subtract
+tolerance again before selecting the band. Ontario demerit categories inspired
+the boundaries; these score values are our calibration, not an official rating.
 
-## Configuration and activation
+| Excess above posted limit | Score |
+| --- | ---: |
+| At most 5 | 100 |
+| More than 5, below 16 | 80 |
+| 16 to below 30 | 60 |
+| 30 to below 50 | 40 |
+| 50 or more | 0 |
 
-Add these **backend** environment variables before deploying/enabling the new code:
+Validate GPS coordinates, timestamps and nonnegative device speeds; ignore
+accelerometer-only rows. Deduplicate timestamps using the highest valid speed
+and its own limit; equal-speed ties keep the lowest stable sample ID. Sort once,
+then walk adjacent GPS pairs. Invalid timestamped GPS rows remain barriers.
+Rows without a usable timestamp are ignored and counted; they cannot be placed
+on the timeline. No synthetic intermediate GPS points are created.
 
-| Variable | Setting |
+For each positive interval, exclusions are checked in this order:
+1. More than the configured maximum interval: `gps_gap`.
+2. Invalid endpoint: `invalid_endpoint`.
+3. Mean endpoint speed below the moving threshold: `stationary`.
+4. Either endpoint has no limit: `unknown_limit`.
+
+Accepted interval score = mean of its endpoint scores. Trip score = sum of
+interval score times duration / evaluated duration. Endpoint averaging is an
+explicit approximation for short intervals, not a reconstruction of actual speed
+between samples. Round only the final result; a positive mean displays at least 1.
+Only an entirely zero-rated evaluated trip displays 0.
+
+Both distance and minimum sample count are inclusive gates. Count the minimum
+samples among distinct endpoints of accepted intervals. No accepted intervals or
+insufficient participating points yields Unscored. There is no separate minimum
+time or coverage gate in this PoC. A low-coverage score can therefore exist;
+coverage must accompany its audit. Minimum distance is the entire valid trip GPS
+distance, not an invented distance from unknown speed limits.
+
+Events remain available as diagnostics, but do not determine score. Consecutive
+speeding participating samples form an event; rejected intervals break continuity.
+There is no emergency-event penalty or city/highway adjustment in this model.
+
+## Server configuration
+
+The following agreed defaults are defined in server code. Environment variables
+are optional overrides for newly ended trips:
+
+| Variable | Agreed PoC value |
 | --- | --- |
-| `TRIP_SPEED_TOLERANCE_KMH` | **5**, confirmed by the user |
-| `TRIP_FALLBACK_SPEED_THRESHOLD_KMH` | **85**, final fallback threshold |
-| `TRIP_SPEEDING_PENALTY_PER_EVENT` | Keep existing **2** |
-| `TRIP_MIN_VALID_READINGS` | Keep existing **5** |
-| `TRIP_MIN_DISTANCE_KM` | **0.1 proposed** for this PoC; user has not yet confirmed the replacement of 0.0001 |
+| `TRIP_MIN_VALID_READINGS` | `5` |
+| `TRIP_MIN_DISTANCE_KM` | `0.1` |
+| `TRIP_SPEED_TOLERANCE_KMH` | `5` |
+| `TRIP_MAX_SCORING_INTERVAL_SECONDS` | `3` |
+| `TRIP_MIN_MOVING_SPEED_KMH` | `5` |
+| `TRIP_SPEED_SCORE_BANDS` | JSON below |
 
-Both new settings are required, finite, validated and server-only. No numeric
-fallback/tolerance defaults are hardcoded in runtime scoring. Keep the Task 72
-TomTom key and `TRIP_SPEED_LIMIT_ENRICHMENT_ENABLED=true` for normal enrichment.
-If enrichment is deliberately disabled, absent stored limits are explicitly
-fallback-scored. A provider/DB error is still an error, not missing road data.
+```json
+[{"fromKmh":0,"score":80},{"fromKmh":16,"score":60},{"fromKmh":30,"score":40},{"fromKmh":50,"score":0}]
+```
 
-Per-limit scoring replaces the old calculation for newly ended trips on this
-deployment; there is no second per-limit feature flag. Before rollout, record
-the team's chosen minimum distance on the Story as required by AC10. Local tests
-using 0.1 do not constitute that approval or a server configuration change.
+The first band starts at zero and applies only above tolerance. Boundaries must
+increase, scores must be non-increasing within 0..100, and tolerance must remain
+below the second boundary. The JSON table supports calibration without code
+changes. Absent variables use the defaults; present but empty, malformed or out-of-range
+values fail explicitly. Defaults and overrides both pass the same validation.
+The effective config is saved with each trip, including when defaults are used.
+An existing `TRIP_MIN_DISTANCE_KM=0.0001` still overrides the 0.1 km default;
+remove that override or change it to `0.1` to use the agreed minimum.
+`TRIP_SPEEDING_PENALTY_PER_EVENT` and `TRIP_FALLBACK_SPEED_THRESHOLD_KMH` are no
+longer read by v2. They may remain configured for older deployment compatibility.
+Keep `TRIP_SPEED_LIMIT_ENRICHMENT_ENABLED=true` and the server TomTom key.
+Disabling enrichment without already stored limits produces exclusions/Unscored,
+not a fallback score. Provider failures still fail processing rather than
+masquerading as unknown limits.
 
-## Persistence and reproducibility
+## Database rollout and audit
 
-Apply `database/005_per_limit_scoring.sql` after 004. It creates two RLS-protected
-tables and a service-role-only transaction function; it does not backfill or
-recalculate any historical trip.
+For a fresh DB, apply `database/001...005` in order. Updated
+`005_per_limit_scoring.sql` directly creates the current tables and both RPCs.
 
-- `trip_scoring_results`: one immutable-on-repeat result per trip, including
-  version, exact calculation distance (before the `trips.distance_km` rounding),
-  counts, event count, score/unscored reason and every scoring configuration value.
-- `trip_sample_scoring`: one decision per GPS sample with status
-  `used/duplicate/ignored/unscored`. A `used` sample records the actual limit,
-  applied tolerance, final threshold, `used_fallback`, `is_speeding`, and
-  `starts_event`. Non-used rows have null flags/thresholds, so duplicates or
-  insufficient trips are not falsely labelled as fallback-scored.
+For the one existing development installation created using the previous 005,
+run the separate one-time script
+[`upgrade-band-scoring-existing-db.sql`](../../research/task-73/upgrade-band-scoring-existing-db.sql).
+Do not re-run 004/005 CREATE TABLE statements there. The upgrade preserves the old
+RPC so the currently deployed backend can finish trips during rollout. Deploy
+the new backend after the update and environment configuration. No SQL update or
+deployment was executed by the agent. There is no installation script 006.
 
-For fallback, `speed_limit_kmh_used=85`, `tolerance_kmh_used=0`,
-`threshold_kmh=85`, `used_fallback=true`. This is a scoring rule, not a claim that
-the legal posted limit is 85; the separate fetched limit remains null. Available
-limits retain Task 72 provider/fetch provenance in `trip_sample_speed_limits`.
 
-The RPC atomically stores decisions, config and score before setting Completed.
-It verifies complete sample identity/counts and structural audit consistency.
-Threshold selection and event boundaries are calculated in TypeScript.
-A failure rolls back all scoring writes. A completed trip
-returns the old result without overwriting its score or audit rows, including
-trips recorded before this task. A completed end-trip can be returned even if the
-new scoring variables are missing; no rescore is attempted.
+New RPC `save_trip_band_scoring_result` atomically saves:
+- `trip_scoring_results`: `road-bands-v2`, score, counts, exact distance,
+  `scoring_config` snapshot and `quality`. Old fallback/penalty fields stay null.
+- `trip_sample_scoring`: endpoint `reading_score`, status, limits and event flags
+  for participating samples; unknown or isolated valid samples are `excluded`.
+  Unscored trips retain eligible endpoint scores but have no `used` flags.
+- `trip_interval_scoring`: endpoint IDs, duration, score or exclusion reason.
 
-## Tests and worked example
+Quality includes evaluated readings/time, valid moving time, coverage percent,
+unknown-limit/stationary/gap/invalid-endpoint durations and duration per score.
+Coverage denominator is valid moving time in short intervals, including unknown
+limits. Long gaps and stationary/invalid intervals are reported separately.
+Exclusion durations are disjoint due to the priority order above. Category time
+assigns half the interval duration to each endpoint category. Provider/fetch
+provenance remains in `trip_sample_speed_limits`. Raw data is never rewritten.
+
+SQL verifies identity, counts and structural constraints. TypeScript alone owns
+the formula and interval eligibility. Completed trips return their original
+result without changing score, timestamp, parameters or decisions.
+
+## Verification
 
 ```powershell
 node --test tests/*.test.ts
 node node_modules/typescript/bin/tsc --noEmit
+node scripts/replay-band-scoring.mjs "<exported-trip.csv>" "<audit.json>"
 ```
 
-Hand-calculated 0.3 km fixture (penalty 2, tolerance 5, fallback 85):
+The offline script uses `docs/scoring-config.example.json` unless an explicit
+config file is passed as its third argument. It never calls APIs or writes the DB.
+Original Nov 12 college trip: 1,223 GPS rows, one duplicate, 1,062 participating
+readings, 1,050.022 evaluated seconds, 92.4977% valid-moving-time coverage.
+Weighted mean 89.6279697, rounded score **90**, compared with historical 99.
+This is an offline replay of stored limits, not a new provider/DB test.
 
-| Speed | Stored limit | Threshold | Fallback | Speeding | New event |
-| --- | --- | --- | --- | --- | --- |
-| 55 | 50 | 55 | no | no | no |
-| 56 | 50 | 55 | no | yes | yes |
-| 70 | missing | 85 | yes | no | no |
-| 86 | missing | 85 | yes | yes | yes |
-| 65 | 60 | 65 | no | no | no |
+Run `tests/band-scoring.sql` in the Supabase SQL Editor after the updated 005 (or the one-time upgrade). It rolls back
+its test data and checks atomicity, exclusions, saved config, repeat immutability
+and access restrictions. It is prepared but has not been executed by the agent.
+The older `tests/per-limit-scoring.sql` covers the preserved v1 RPC only.
 
-Two events: `round(100 - 2*2/0.3) = 87`. Tests also cover zero events/100,
-speeds above 85 that remain legal on higher-limit roads, speeding below 85 on
-lower-limit roads, exact boundaries, minimum distance, continuous events across
-changing limits, duplicates with conflicting limits, invalid data/config and
-failed saves. The SQL integration test is `tests/per-limit-scoring.sql`; run it
-in the development Supabase SQL Editor after migration 005. It rolls back test
-rows and verifies atomic writes, fallback flags, event counts, snapshot config,
-and completed-trip immutability. It was prepared locally, not executed by the agent.
+Use `scripts/verify-speed-limit-preview.mjs <new-preview-url>` for a live new-trip
+API check, then inspect the printed SQL. Completed alone does not establish which
+model ran or whether enrichment was enabled.
 
-Offline replay of the saved Task 70 TomTom response, with tolerance 5, fallback 85,
-penalty 2 and minimum 0.1: 622 raw samples, 616 representative readings, 6
-duplicates, 10 events, distance 6.6377272886 km, score 97. Of the representative
-readings, 93 use fallback. This is not a new live/provider or database test;
-provider data and duplicate tie choices on a new trip can differ.
+## Local verification record
 
-## Preview verification
-
-After migration/config/deploy, use `scripts/verify-speed-limit-preview.mjs` against
-the NEW deployment URL. It creates a new test trip. Inspect the following with
-its returned trip ID:
-
-```sql
-SELECT * FROM public.trip_scoring_results WHERE trip_id = '<new-trip-id>';
-
-SELECT s.status, s.used_fallback, count(*) AS samples,
-       count(*) FILTER (WHERE s.is_speeding) AS speeding_samples,
-       count(*) FILTER (WHERE s.starts_event) AS events
-FROM public.trip_sample_scoring s WHERE s.trip_id = '<new-trip-id>'
-GROUP BY s.status, s.used_fallback;
-
-SELECT d.recorded_at, d.speed_kmh, l.speed_limit_kmh, l.provider, l.fetched_at,
-       s.speed_limit_kmh_used, s.tolerance_kmh_used, s.threshold_kmh,
-       s.used_fallback, s.is_speeding, s.starts_event
-FROM public.trip_sample_scoring s
-JOIN public.trip_data_points d USING (sample_id, trip_id)
-LEFT JOIN public.trip_sample_speed_limits l USING (sample_id, trip_id)
-WHERE s.trip_id = '<new-trip-id>' AND s.status = 'used'
-ORDER BY d.recorded_at, d.sample_id;
-```
-
-Compare the snapshot event count with `starts_event` count and the score against
-the stored exact distance/penalty. A duplicate/ignored row is not an event. Retry
-end-trip and compare old completed trip scores; neither should change.
+After the band-scoring revision and optional env overrides: all **57** Node tests pass; TypeScript no-emit,
+script syntax checks and `git diff --check` pass. Offline replay reproduces the
+recorded-trip result above. Database migration/SQL tests and Preview verification
+remain pending; no live DB, environment or deployment was changed by the agent.
