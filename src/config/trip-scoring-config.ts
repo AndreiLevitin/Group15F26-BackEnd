@@ -29,20 +29,34 @@ export function createTripScoringConfig(parameters: TripScoringConfig): TripScor
     }
     return { ...parameters, bands: bands.map(b => ({ fromKmh: b.fromKmh, score: b.score })) };
 }
+// Agreed PoC defaults. Each load returns its own validated copy for the trip snapshot.
+const defaults: TripScoringConfig = {
+    minValidReadings: 5,
+    minDistanceKm: 0.1,
+    toleranceKmh: 5,
+    maxIntervalSeconds: 3,
+    minMovingSpeedKmh: 5,
+    bands: [{ fromKmh: 0, score: 80 }, { fromKmh: 16, score: 60 },
+        { fromKmh: 30, score: 40 }, { fromKmh: 50, score: 0 }],
+};
 export function loadTripScoringConfig(env: NodeJS.ProcessEnv): TripScoringConfig {
-    function requiredNumber(name: string): number {
-        const value = env[name]?.trim() ? Number(env[name]) : NaN;
-        if (!Number.isFinite(value)) throw new Error(`Missing or invalid ${name}.`);
+    function numberOverride(name: string, fallback: number): number {
+        const raw = env[name];
+        if (raw === undefined) return fallback;
+        const value = raw.trim() ? Number(raw) : NaN;
+        if (!Number.isFinite(value)) throw new Error(`Invalid ${name}.`);
         return value;
     }
-    let bands: SpeedScoreBand[];
-    try { bands = JSON.parse(env.TRIP_SPEED_SCORE_BANDS ?? ''); }
-    catch { throw new Error('Missing or invalid TRIP_SPEED_SCORE_BANDS.'); }
+    let bands = defaults.bands;
+    if (env.TRIP_SPEED_SCORE_BANDS !== undefined) {
+        try { bands = JSON.parse(env.TRIP_SPEED_SCORE_BANDS); }
+        catch { throw new Error('Invalid TRIP_SPEED_SCORE_BANDS.'); }
+    }
     return createTripScoringConfig({
-        minValidReadings: requiredNumber('TRIP_MIN_VALID_READINGS'),
-        minDistanceKm: requiredNumber('TRIP_MIN_DISTANCE_KM'),
-        toleranceKmh: requiredNumber('TRIP_SPEED_TOLERANCE_KMH'),
-        maxIntervalSeconds: requiredNumber('TRIP_MAX_SCORING_INTERVAL_SECONDS'),
-        minMovingSpeedKmh: requiredNumber('TRIP_MIN_MOVING_SPEED_KMH'), bands,
+        minValidReadings: numberOverride('TRIP_MIN_VALID_READINGS', defaults.minValidReadings),
+        minDistanceKm: numberOverride('TRIP_MIN_DISTANCE_KM', defaults.minDistanceKm),
+        toleranceKmh: numberOverride('TRIP_SPEED_TOLERANCE_KMH', defaults.toleranceKmh),
+        maxIntervalSeconds: numberOverride('TRIP_MAX_SCORING_INTERVAL_SECONDS', defaults.maxIntervalSeconds),
+        minMovingSpeedKmh: numberOverride('TRIP_MIN_MOVING_SPEED_KMH', defaults.minMovingSpeedKmh), bands,
     });
 }

@@ -24,10 +24,37 @@ test('loads and validates band scoring settings from server config', () => {
     assert.equal(config.maxIntervalSeconds, 3);
     for (const key of Object.keys(env)) {
         const missing: NodeJS.ProcessEnv = { ...env }; delete missing[key];
-        assert.throws(() => loadTripScoringConfig(missing));
+        assert.deepEqual(loadTripScoringConfig(missing), config);
     }
     assert.throws(() => loadTripScoringConfig({ ...env, TRIP_SPEED_TOLERANCE_KMH: '-1' }));
     assert.throws(() => loadTripScoringConfig({ ...env, TRIP_SPEED_SCORE_BANDS: 'null' }));
+});
+
+test('absent env returns agreed defaults and independently copied bands', () => {
+    assert.deepEqual(loadTripScoringConfig({}), config);
+    const first = loadTripScoringConfig({});
+    first.bands[0]!.score = 1;
+    assert.deepEqual(loadTripScoringConfig({}), config);
+});
+
+test('valid partial overrides replace defaults, including legacy minimum distance', () => {
+    const r = loadTripScoringConfig({ TRIP_MIN_VALID_READINGS: '6', TRIP_MIN_DISTANCE_KM: '0.0001',
+        TRIP_SPEED_TOLERANCE_KMH: '7', TRIP_MAX_SCORING_INTERVAL_SECONDS: '2',
+        TRIP_MIN_MOVING_SPEED_KMH: '4', TRIP_SPEED_SCORE_BANDS: '[{"fromKmh":0,"score":75},{"fromKmh":20,"score":0}]' });
+    assert.deepEqual(r, { minValidReadings:6, minDistanceKm:0.0001, toleranceKmh:7,
+        maxIntervalSeconds:2, minMovingSpeedKmh:4, bands:[{fromKmh:0,score:75},{fromKmh:20,score:0}] });
+    assert.deepEqual(loadTripScoringConfig({ TRIP_MIN_DISTANCE_KM:'0.2' }), { ...config, minDistanceKm:0.2 });
+});
+
+test('present but empty or malformed overrides never silently use defaults', () => {
+    for (const key of Object.keys(env)) for (const value of ['', '  ', 'invalid', 'Infinity']) {
+        assert.throws(() => loadTripScoringConfig({ [key]: value }), key);
+    }
+    for (const bands of ['null', '{}', '[]', '[{"fromKmh":0,"score":80},{"fromKmh":3,"score":0}]']) {
+        assert.throws(() => loadTripScoringConfig({ TRIP_SPEED_SCORE_BANDS:bands }));
+    }
+    assert.throws(() => loadTripScoringConfig({ TRIP_MIN_VALID_READINGS:'1' }));
+    assert.throws(() => loadTripScoringConfig({ TRIP_MAX_SCORING_INTERVAL_SECONDS:'0' }));
 });
 
 test('scoring orchestration sends result, per-sample decisions, exact distance and config in one save', async () => {

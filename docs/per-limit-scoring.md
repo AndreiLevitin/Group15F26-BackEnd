@@ -52,7 +52,8 @@ There is no emergency-event penalty or city/highway adjustment in this model.
 
 ## Server configuration
 
-All following variables are required for newly ended trips:
+The following agreed defaults are defined in server code. Environment variables
+are optional overrides for newly ended trips:
 
 | Variable | Agreed PoC value |
 | --- | --- |
@@ -70,7 +71,11 @@ All following variables are required for newly ended trips:
 The first band starts at zero and applies only above tolerance. Boundaries must
 increase, scores must be non-increasing within 0..100, and tolerance must remain
 below the second boundary. The JSON table supports calibration without code
-changes. Missing/invalid settings fail explicitly; they do not give a default 100.
+changes. Absent variables use the defaults; present but empty, malformed or out-of-range
+values fail explicitly. Defaults and overrides both pass the same validation.
+The effective config is saved with each trip, including when defaults are used.
+An existing `TRIP_MIN_DISTANCE_KM=0.0001` still overrides the 0.1 km default;
+remove that override or change it to `0.1` to use the agreed minimum.
 `TRIP_SPEEDING_PENALTY_PER_EVENT` and `TRIP_FALLBACK_SPEED_THRESHOLD_KMH` are no
 longer read by v2. They may remain configured for older deployment compatibility.
 Keep `TRIP_SPEED_LIMIT_ENRICHMENT_ENABLED=true` and the server TomTom key.
@@ -138,7 +143,7 @@ model ran or whether enrichment was enabled.
 
 ## Local verification record
 
-After the band-scoring revision: all **54** Node tests pass; TypeScript no-emit,
+After the band-scoring revision and optional env overrides: all **57** Node tests pass; TypeScript no-emit,
 script syntax checks and `git diff --check` pass. Offline replay reproduces the
 recorded-trip result above. Database migration/SQL tests and Preview verification
 remain pending; no live DB, environment or deployment was changed by the agent.
