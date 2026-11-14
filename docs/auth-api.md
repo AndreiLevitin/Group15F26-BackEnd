@@ -57,12 +57,23 @@ Every error body is `{ "error": "<code>", "message": "<text safe to show the use
 Sign-in does not apply the length rule, so a wrong password always gets the
 same `invalid_credentials` answer.
 
-## Not covered yet
+## `POST /api/refresh-session` → `200` (AB#77)
 
-- Token refresh. Access tokens expire after Supabase's JWT expiry (1 hour by
-  default). Nothing uses the token yet, so this is left for the task that
-  starts requiring auth on the trip endpoints.
-- Trips are not linked to users, and the trip endpoints do not check tokens.
+Body: `{ "refreshToken": string }`. Returns the same `{ user, session }` shape
+as sign-in, with a new access token **and a new refresh token** — the old
+refresh token is used up, so the client must store the new one.
+
+| Status | `error` | When |
+| --- | --- | --- |
+| 400 | `invalid_request` | `refreshToken` missing or not a non-empty string |
+| 401 | `invalid_refresh_token` | Token used, revoked or unknown; the user must sign in again |
+| 429 | `rate_limited` | Supabase rate limit hit |
+| 503 | `auth_unavailable` | Unexpected Supabase or server failure |
+
+## Using the session
+
+Trip endpoints require `Authorization: Bearer <accessToken>`; see
+`docs/trip-ownership.md`.
 
 ## Local checks
 

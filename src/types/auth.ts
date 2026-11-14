@@ -29,8 +29,20 @@ export type AuthErrorCode =
     | 'weak_password'
     | 'email_already_registered'
     | 'invalid_credentials'
+    | 'invalid_refresh_token'
     | 'rate_limited'
     | 'auth_unavailable';
+
+/** Body of POST /api/refresh-session. */
+export interface RefreshSessionRequest {
+    refreshToken: string;
+}
+
+/** The signed-in caller, derived only from a verified access token. */
+export interface TripAccess {
+    userId: string;
+    accessToken: string;
+}
 
 export interface AuthErrorResponse {
     error: AuthErrorCode;

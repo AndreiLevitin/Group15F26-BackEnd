@@ -22,6 +22,7 @@ const errors: Record<AuthErrorCode, { status: number; message: string }> = {
         message: 'An account with this email already exists. Sign in instead.',
     },
     invalid_credentials: { status: 401, message: 'Incorrect email or password.' },
+    invalid_refresh_token: { status: 401, message: 'Your session has ended. Sign in again.' },
     rate_limited: { status: 429, message: 'Too many attempts. Wait a moment and try again.' },
     auth_unavailable: { status: 503, message: 'Sign-in is unavailable right now. Try again later.' },
 };
@@ -30,9 +31,9 @@ function json(body: unknown, status: number) {
     return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
-function errorResponse(code: AuthErrorCode) {
+function errorResponse(code: AuthErrorCode, messageOverride?: string) {
     const { status, message } = errors[code];
-    return json({ error: code, message }, status);
+    return json({ error: code, message: messageOverride ?? message }, status);
 }
 
 async function readCredentials(request: Request): Promise<AuthCredentials | AuthErrorCode> {
@@ -88,4 +89,31 @@ export function createSignUpHandler(createAccount: Authenticate) {
 
 export function createSignInHandler(signIn: Authenticate) {
     return createAuthHandler(signIn, 200, false, 'sign-in');
+}
+
+/** POST /api/refresh-session (AB#77): swaps a refresh token for a new session. */
+export function createRefreshSessionHandler(refresh: (refreshToken: string) => Promise<AuthResult>) {
+    return async function POST(request: Request): Promise<Response> {
+        let body: unknown;
+        try {
+            body = await request.json();
+        } catch {
+            body = null;
+        }
+        const refreshToken = body && typeof body === 'object'
+            ? (body as Record<string, unknown>).refreshToken
+            : undefined;
+        if (typeof refreshToken !== 'string' || !refreshToken) {
+            return errorResponse('invalid_request', 'refreshToken is required.');
+        }
+
+        try {
+            const result = await refresh(refreshToken);
+            if (!result.ok) return errorResponse(result.reason);
+            return json(result.auth, 200);
+        } catch (error) {
+            console.error('Unexpected error during session refresh:', error);
+            return errorResponse('auth_unavailable');
+        }
+    };
 }

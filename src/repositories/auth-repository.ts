@@ -13,6 +13,11 @@ function expectedFailure(error: AuthError): AuthFailure | null {
             return 'weak_password';
         case 'invalid_credentials':
             return 'invalid_credentials';
+        case 'refresh_token_not_found':
+        case 'refresh_token_already_used':
+        case 'session_not_found':
+        case 'session_expired':
+            return 'invalid_refresh_token';
         case 'over_request_rate_limit':
             return 'rate_limited';
         default:
@@ -49,6 +54,39 @@ export async function signInWithPassword(credentials: AuthCredentials): Promise<
     if (!data.session) throw new Error('Sign-in returned no session');
 
     return toAuthResult(data.session);
+}
+
+export async function refreshSession(refreshToken: string): Promise<AuthResult> {
+    const { data, error } = await createSignInClient().auth.refreshSession({
+        refresh_token: refreshToken,
+    });
+
+    if (error) {
+        const reason = expectedFailure(error);
+        if (reason) return { ok: false, reason };
+        // Any other client error means this refresh token cannot be used.
+        if (error.status !== undefined && error.status >= 400 && error.status < 500) {
+            return { ok: false, reason: 'invalid_refresh_token' };
+        }
+        throw new Error(`Could not refresh session: ${error.message}`);
+    }
+    if (!data.session) throw new Error('Refresh returned no session');
+
+    return toAuthResult(data.session);
+}
+
+/**
+ * Asks Supabase Auth who an access token belongs to. Returns null when the
+ * token is invalid, expired or revoked; throws when Auth cannot be reached.
+ */
+export async function verifyAccessToken(accessToken: string): Promise<{ id: string } | null> {
+    const { data, error } = await supabase.auth.getUser(accessToken);
+
+    if (error) {
+        if (error.status !== undefined && error.status >= 400 && error.status < 500) return null;
+        throw new Error(`Could not verify access token: ${error.message}`);
+    }
+    return data.user ? { id: data.user.id } : null;
 }
 
 // Email confirmation is off for this project (AB#75): accounts are created
