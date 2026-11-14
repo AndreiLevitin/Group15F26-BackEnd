@@ -9,6 +9,7 @@ import { createEndTripHandler } from '../src/services/end-trip.ts';
 import { createRefreshSessionHandler } from '../src/services/auth.ts';
 import type { TripSampleRow, UserTripRepository } from '../src/repositories/user-trip-repository.ts';
 import type { AuthResult, TripAccess } from '../src/types/auth.ts';
+import { AuthRateLimitedError } from '../src/types/auth-errors.ts';
 import type { Trip } from '../src/types/trip.ts';
 
 const tripId = '123e4567-e89b-42d3-a456-426614174000';
@@ -69,6 +70,24 @@ test('the user ID comes from the verified token only', async () => {
     const result = await authenticate(post('/x', { userId: 'user-b' }, 'token-a'));
     assert.equal(verified, 'token-a');
     assert.deepEqual(result, { ok: true, access: { userId: 'user-a', accessToken: 'token-a' } });
+});
+
+test('an Auth rate limit is 429 with Retry-After, not 401, so the client does not refresh or sign out', async () => {
+    const result = await createAuthenticator(async () => { throw new AuthRateLimitedError(); })(
+        post('/x', undefined, 'token-a'));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+        assert.equal(result.response.status, 429);
+        assert.equal(result.response.headers.get('Retry-After'), '5');
+        assert.equal((await result.response.json()).error, 'rate_limited');
+    }
+});
+
+test('a rate-limited refresh is 429, not invalid_refresh_token', async () => {
+    const handler = createRefreshSessionHandler(async () => ({ ok: false, reason: 'rate_limited' }));
+    const response = await handler(post('/api/refresh-session', { refreshToken: 'refresh-1' }));
+    assert.equal(response.status, 429);
+    assert.equal((await response.json()).error, 'rate_limited');
 });
 
 test('Auth being unreachable is 503, not 401', async () => {

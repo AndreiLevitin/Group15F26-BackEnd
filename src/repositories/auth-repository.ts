@@ -1,29 +1,8 @@
-import type { AuthError, Session } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 import { createSignInClient, supabase } from '../lib/supabase.js';
-import type { AuthCredentials, AuthFailure, AuthResult } from '../types/auth.js';
-
-function expectedFailure(error: AuthError): AuthFailure | null {
-    switch (error.code) {
-        case 'email_exists':
-        case 'user_already_exists':
-            return 'email_already_registered';
-        case 'email_address_invalid':
-            return 'invalid_email';
-        case 'weak_password':
-            return 'weak_password';
-        case 'invalid_credentials':
-            return 'invalid_credentials';
-        case 'refresh_token_not_found':
-        case 'refresh_token_already_used':
-        case 'session_not_found':
-        case 'session_expired':
-            return 'invalid_refresh_token';
-        case 'over_request_rate_limit':
-            return 'rate_limited';
-        default:
-            return null;
-    }
-}
+import type { AuthCredentials, AuthResult } from '../types/auth.js';
+import { AuthRateLimitedError } from '../types/auth-errors.ts';
+import { expectedFailure, refreshFailure, tokenCheckFailure } from './auth-error-mapping.ts';
 
 function toAuthResult(session: Session): AuthResult {
     const email = session.user.email;
@@ -62,12 +41,8 @@ export async function refreshSession(refreshToken: string): Promise<AuthResult> 
     });
 
     if (error) {
-        const reason = expectedFailure(error);
+        const reason = refreshFailure(error);
         if (reason) return { ok: false, reason };
-        // Any other client error means this refresh token cannot be used.
-        if (error.status !== undefined && error.status >= 400 && error.status < 500) {
-            return { ok: false, reason: 'invalid_refresh_token' };
-        }
         throw new Error(`Could not refresh session: ${error.message}`);
     }
     if (!data.session) throw new Error('Refresh returned no session');
@@ -77,13 +52,19 @@ export async function refreshSession(refreshToken: string): Promise<AuthResult> 
 
 /**
  * Asks Supabase Auth who an access token belongs to. Returns null when the
- * token is invalid, expired or revoked; throws when Auth cannot be reached.
+ * token is invalid, expired or revoked. Throws AuthRateLimitedError when Auth
+ * is rate-limiting (the token may well be fine), and a plain Error when Auth
+ * cannot be reached.
  */
 export async function verifyAccessToken(accessToken: string): Promise<{ id: string } | null> {
     const { data, error } = await supabase.auth.getUser(accessToken);
 
     if (error) {
-        if (error.status !== undefined && error.status >= 400 && error.status < 500) return null;
+        switch (tokenCheckFailure(error)) {
+            case 'rate_limited': throw new AuthRateLimitedError();
+            case 'invalid': return null;
+            case 'unavailable': break;
+        }
         throw new Error(`Could not verify access token: ${error.message}`);
     }
     return data.user ? { id: data.user.id } : null;
