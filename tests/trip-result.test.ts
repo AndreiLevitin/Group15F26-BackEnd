@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createTripResultHandler } from '../src/services/trip-result.ts';
+import { createTripResultHandler as createHandler } from '../src/services/trip-result.ts';
+import type { StoredTripResult } from '../src/repositories/trip-result-repository.ts';
+import type { TripAccess } from '../src/types/auth.ts';
 import type { TripStatus } from '../src/types/trip.ts';
+
+const access: TripAccess = { userId: 'user-a', accessToken: 'token-a' };
+const signedIn = async () => ({ ok: true as const, access });
+
+// The result-shape tests below run as a signed-in user; auth and ownership
+// are covered by the AB#77 tests at the end of this file.
+const createTripResultHandler = (find: (tripId: string) => Promise<StoredTripResult | null>) =>
+    createHandler((_access, id) => find(id), signedIn);
 
 const tripId = '123e4567-e89b-42d3-a456-426614174000';
 const request = (query = `tripId=${tripId}`) => new Request(`https://example.test/api/trip-result?${query}`);
@@ -79,4 +89,20 @@ test('returns the trip detail fields with the computed duration', async () => {
         distanceKm: 8.75,
         durationSeconds: 1830,
     });
+});
+
+test('AB#77: rejects a request without a valid session before reading storage', async () => {
+    const handler = createHandler(
+        async () => assert.fail('Storage should not be accessed'),
+        async () => ({ ok: false as const, response: Response.json({ error: 'unauthorized' }, { status: 401 }) }),
+    );
+    assert.equal((await handler(request())).status, 401);
+});
+
+test('AB#77: reads the trip as the caller, and another account\'s trip is a 404', async () => {
+    let seen: TripAccess | undefined;
+    const handler = createHandler(async (caller) => { seen = caller; return null; }, signedIn);
+    const response = await handler(request());
+    assert.equal(response.status, 404);
+    assert.deepEqual(seen, access);
 });

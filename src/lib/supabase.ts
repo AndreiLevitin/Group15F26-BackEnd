@@ -29,3 +29,21 @@ export const supabase = createServerClient();
 export function createSignInClient() {
     return createServerClient();
 }
+
+// A client that acts as the signed-in user (AB#77). Queries made with it run
+// under that user's row-level security policies, so the database itself
+// refuses access to other accounts' trips even if a backend check is missed.
+// It uses the publishable key, never the secret key, so RLS always applies.
+export function createUserClient(accessToken: string) {
+    const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+    if (!publishableKey) {
+        throw new Error('SUPABASE_PUBLISHABLE_KEY is missing');
+    }
+    return createClient(url, publishableKey, {
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+        auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+        },
+    });
+}

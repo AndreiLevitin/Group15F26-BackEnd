@@ -21,6 +21,10 @@ trip has not ended.
 Errors: missing, malformed or repeated `tripId` → 400; unknown trip → 404;
 database failure → 503. Error bodies contain an `error` code.
 
+AB#77: requires `Authorization: Bearer <accessToken>` (no or bad token → 401).
+Only the caller's own trips are returned; another account's trip is a 404.
+See `docs/trip-ownership.md`.
+
 ## Manual integration check
 
 1. Start and end a test trip through the existing endpoints. Keep its UUID.
