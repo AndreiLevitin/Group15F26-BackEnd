@@ -70,6 +70,23 @@ refresh token is used up, so the client must store the new one.
 | 429 | `rate_limited` | Supabase rate limit hit |
 | 503 | `auth_unavailable` | Unexpected Supabase or server failure |
 
+## `POST /api/sign-out` → `204` (Bug 89)
+
+Header: `Authorization: Bearer <accessToken>`. No body. Revokes the session
+that access token belongs to: afterwards that access token is rejected by
+every trip endpoint (`401`) and its refresh token can no longer be refreshed.
+Only this session ends; the account's other devices stay signed in.
+
+| Status | `error` | When |
+| --- | --- | --- |
+| 204 | — | Session ended, or it had already ended (safe to repeat) |
+| 401 | `unauthorized` | No or malformed `Authorization` header |
+| 429 | `rate_limited` | Supabase rate limit; the session may still be live |
+| 503 | `auth_unavailable` | Supabase Auth unreachable; the session may still be live |
+
+The app calls this before clearing its tokens. If it fails, the app still
+signs out locally, so a user is never stuck signed in.
+
 ## Using the session
 
 Trip endpoints require `Authorization: Bearer <accessToken>`; see

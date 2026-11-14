@@ -70,6 +70,27 @@ export async function verifyAccessToken(accessToken: string): Promise<{ id: stri
     return data.user ? { id: data.user.id } : null;
 }
 
+/**
+ * Bug 89: ends the session this access token belongs to, so the token and
+ * its refresh token stop working everywhere. Only this session ('local');
+ * the user's other devices stay signed in.
+ *
+ * A token Supabase already rejects means the session is already over, which
+ * is the outcome wanted, so it counts as success. Throws AuthRateLimitedError
+ * when rate-limited and a plain Error when Auth cannot be reached.
+ */
+export async function revokeSession(accessToken: string): Promise<void> {
+    const { error } = await supabase.auth.admin.signOut(accessToken, 'local');
+    if (!error) return;
+
+    switch (tokenCheckFailure(error)) {
+        case 'rate_limited': throw new AuthRateLimitedError();
+        case 'invalid': return;
+        case 'unavailable': break;
+    }
+    throw new Error(`Could not revoke session: ${error.message}`);
+}
+
 // Email confirmation is off for this project (AB#75): accounts are created
 // already confirmed, so sign-up signs the user straight in. Using the admin
 // API also means a duplicate email reports `email_exists` instead of the
