@@ -1,24 +1,8 @@
-import type { AuthError, Session } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 import { createSignInClient, supabase } from '../lib/supabase.js';
-import type { AuthCredentials, AuthFailure, AuthResult } from '../types/auth.js';
-
-function expectedFailure(error: AuthError): AuthFailure | null {
-    switch (error.code) {
-        case 'email_exists':
-        case 'user_already_exists':
-            return 'email_already_registered';
-        case 'email_address_invalid':
-            return 'invalid_email';
-        case 'weak_password':
-            return 'weak_password';
-        case 'invalid_credentials':
-            return 'invalid_credentials';
-        case 'over_request_rate_limit':
-            return 'rate_limited';
-        default:
-            return null;
-    }
-}
+import type { AuthCredentials, AuthResult } from '../types/auth.js';
+import { AuthRateLimitedError } from '../types/auth-errors.ts';
+import { expectedFailure, refreshFailure, tokenCheckFailure } from './auth-error-mapping.ts';
 
 function toAuthResult(session: Session): AuthResult {
     const email = session.user.email;
@@ -49,6 +33,41 @@ export async function signInWithPassword(credentials: AuthCredentials): Promise<
     if (!data.session) throw new Error('Sign-in returned no session');
 
     return toAuthResult(data.session);
+}
+
+export async function refreshSession(refreshToken: string): Promise<AuthResult> {
+    const { data, error } = await createSignInClient().auth.refreshSession({
+        refresh_token: refreshToken,
+    });
+
+    if (error) {
+        const reason = refreshFailure(error);
+        if (reason) return { ok: false, reason };
+        throw new Error(`Could not refresh session: ${error.message}`);
+    }
+    if (!data.session) throw new Error('Refresh returned no session');
+
+    return toAuthResult(data.session);
+}
+
+/**
+ * Asks Supabase Auth who an access token belongs to. Returns null when the
+ * token is invalid, expired or revoked. Throws AuthRateLimitedError when Auth
+ * is rate-limiting (the token may well be fine), and a plain Error when Auth
+ * cannot be reached.
+ */
+export async function verifyAccessToken(accessToken: string): Promise<{ id: string } | null> {
+    const { data, error } = await supabase.auth.getUser(accessToken);
+
+    if (error) {
+        switch (tokenCheckFailure(error)) {
+            case 'rate_limited': throw new AuthRateLimitedError();
+            case 'invalid': return null;
+            case 'unavailable': break;
+        }
+        throw new Error(`Could not verify access token: ${error.message}`);
+    }
+    return data.user ? { id: data.user.id } : null;
 }
 
 // Email confirmation is off for this project (AB#75): accounts are created

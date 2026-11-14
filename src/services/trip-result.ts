@@ -1,5 +1,7 @@
 import type { StoredTripResult } from '../repositories/trip-result-repository.js';
+import type { TripAccess } from '../types/auth.js';
 import type { TripStatus } from '../types/trip.js';
+import type { Authenticate } from './request-auth.ts';
 
 export interface TripResultResponse {
     tripId: string;
@@ -12,11 +14,14 @@ export interface TripResultResponse {
     durationSeconds: number | null;
 }
 
-type FindTripResult = (tripId: string) => Promise<StoredTripResult | null>;
+type FindTripResult = (access: TripAccess, tripId: string) => Promise<StoredTripResult | null>;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export function createTripResultHandler(findTripResult: FindTripResult) {
+export function createTripResultHandler(findTripResult: FindTripResult, authenticate: Authenticate) {
     return async function GET(request: Request): Promise<Response> {
+        const auth = await authenticate(request);
+        if (!auth.ok) return auth.response;
+
         const json = (body: unknown, status = 200) => Response.json(body, {
             status,
             headers: { 'Cache-Control': 'no-store' },
@@ -28,7 +33,8 @@ export function createTripResultHandler(findTripResult: FindTripResult) {
         }
 
         try {
-            const trip = await findTripResult(tripId);
+            const trip = await findTripResult(auth.access, tripId);
+            // Someone else's trip is reported exactly like a missing one.
             if (!trip) {
                 return json({ error: 'trip_not_found', message: 'Trip was not found.' }, 404);
             }
