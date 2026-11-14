@@ -11,6 +11,11 @@ read it, upload samples to it, end it or see its result.
    the user ID from it. **A user ID in the URL or body is never used.**
    - Missing, malformed, expired or revoked token → `401 unauthorized`
      (`WWW-Authenticate: Bearer`). The client should refresh once and retry.
+   - Supabase Auth rate-limiting the backend → `429 rate_limited` with
+     `Retry-After`. This is temporary and says nothing about the token, so
+     the client must **not** refresh or sign out because of it. Every Auth
+     error rule checks for 429 before treating other 4xx answers as an
+     invalid token or session (`src/repositories/auth-error-mapping.ts`).
    - Supabase Auth unreachable → `503 auth_unavailable`.
 2. **Query filter.** Trip queries for the user filter on `user_id`.
 3. **Row-level security (backstop).** Those queries run on a Supabase client

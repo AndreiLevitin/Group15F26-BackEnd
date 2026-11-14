@@ -1,4 +1,5 @@
 import type { TripAccess } from '../types/auth.js';
+import { AuthRateLimitedError } from '../types/auth-errors.ts';
 
 export type VerifyAccessToken = (accessToken: string) => Promise<{ id: string } | null>;
 
@@ -36,6 +37,17 @@ export function createAuthenticator(verify: VerifyAccessToken): Authenticate {
             if (!user) return { ok: false, response: unauthorized() };
             return { ok: true, access: { userId: user.id, accessToken } };
         } catch (error) {
+            // Temporary: the token may be fine, so this is not a 401 and the
+            // client must not refresh or sign out because of it.
+            if (error instanceof AuthRateLimitedError) {
+                return {
+                    ok: false,
+                    response: Response.json(
+                        { error: 'rate_limited', message: 'Too many requests. Wait a moment and try again.' },
+                        { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '5' } },
+                    ),
+                };
+            }
             console.error('Could not verify access token:', error);
             return {
                 ok: false,
