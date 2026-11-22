@@ -119,6 +119,42 @@ result without changing score, timestamp, parameters or decisions.
 
 ## Verification
 
+### Story 64 known-trip proof (AB#110)
+
+Use Node 24 and run this from the backend repository:
+
+```sh
+npm run prove:speed-limit-scoring
+```
+
+This runs the real scoring service with 50 fixture GPS readings, a 500 m
+route and fixed scoring parameters. It checks the GPS-derived distance,
+participating reading count and score using in-memory repository substitutes.
+
+To verify actual persistence when a Supabase test database is available, apply
+migrations 001–006 and set `TEST_SUPABASE_URL` and `TEST_SUPABASE_SECRET_KEY`
+to the test project's API URL and secret or service-role key. Then run
+`npm run prove:speed-limit-scoring:db`. This also runs the proof with the
+real repositories, checks the saved row and removes the fixture rows.
+
+| Seconds within each block | Speed (km/h) | Limit (km/h) | Reading score |
+| ---: | ---: | ---: | ---: |
+| 0 | 55 | 50 | 100 |
+| 1 | 60 | 50 | 80 |
+| 3 | 60 | 60 | 100 |
+| 4 | 76 | 60 | 60 |
+| 6 | 90 | 60 | 40 |
+| 7 | 110 | 60 | 0 |
+
+The six-point block repeats eight times, starting every eight seconds. Each
+block contributes `90 × 1 + 90 × 2 + 80 × 1 + 50 × 2 + 20 × 1 = 470`
+score-seconds. The seven one-second intervals between blocks each contribute
+50. The final two readings at seconds 64 and 67 both score 100, adding
+`50 × 1 + 100 × 3`. The trip's weighted mean is
+`(8 × 470 + 7 × 50 + 50 + 300) / 67 ≈ 66.57`, which rounds to **67**.
+The identical 60 km/h readings receive different scores because their posted
+limits differ.
+
 ```powershell
 node --test tests/*.test.ts
 node node_modules/typescript/bin/tsc --noEmit
