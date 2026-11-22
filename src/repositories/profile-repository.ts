@@ -115,74 +115,17 @@ export const profileRepository: ProfileRepository = {
     async saveProfile(access, update) {
         const client = createUserClient(access.accessToken);
 
-        const { error: driverError } = await client
-            .from('drivers')
-            .upsert(
-                {
-                    user_id: access.userId,
-                    name: update.name,
-                    email: update.email,
-                    licence_no: update.licenceNo,
-                },
-                { onConflict: 'user_id' },
-            );
-        if (driverError) throw new Error(`Could not save profile: ${driverError.message}`);
+// One database call, so the driver, vehicle, and policy writes
+// land together or not at all (save_profile, migration 009).
+        const { error } = await client.rpc('save_profile', {
+            p_name: update.name,
+            p_email: update.email,
+            p_licence_no: update.licenceNo,
+            p_vehicle: update.vehicle,
+            p_policy: update.policy,
+        });
 
-        let vehicleId: string | null = null;
-        if (update.vehicle) {
-            const { data, error } = await client
-                .from('vehicles')
-                .upsert(
-                    {
-                        driver_id: access.userId,
-                        make: update.vehicle.make,
-                        model: update.vehicle.model,
-                        year: update.vehicle.year,
-                        plate_no: update.vehicle.plateNo,
-                    },
-                    { onConflict: 'driver_id' },
-                )
-                .select('vehicle_id')
-                .single();
-            if (error) throw new Error(`Could not save vehicle: ${error.message}`);
-            vehicleId = (data as { vehicle_id: string }).vehicle_id;
-        } else {
-            const current = await profileRepository.findProfile(access);
-            vehicleId = current.vehicle ? current.vehicle.vehicleId : null;
-        }
-
-        if (update.policy) {
-            const { data: existing, error: readError } = await client
-                .from('policies')
-                .select('policy_no')
-                .eq('driver_id', access.userId)
-                .maybeSingle();
-            if (readError) throw new Error(`Could not read policy: ${readError.message}`);
-
-            if (existing) {
-                // Update by driver, not by policy number, so a corrected
-                // policy number changes the same row instead of adding one.
-                const { error } = await client
-                    .from('policies')
-                    .update({
-                        policy_no: update.policy.policyNo,
-                        vehicle_id: vehicleId,
-                        insurer: update.policy.insurer,
-                        status: update.policy.status,
-                    })
-                    .eq('driver_id', access.userId);
-                if (error) throw new Error(`Could not save policy: ${error.message}`);
-            } else {
-                const { error } = await client.from('policies').insert({
-                    policy_no: update.policy.policyNo,
-                    driver_id: access.userId,
-                    vehicle_id: vehicleId,
-                    insurer: update.policy.insurer,
-                    status: update.policy.status,
-                });
-                if (error) throw new Error(`Could not save policy: ${error.message}`);
-            }
-        }
+        if (error) throw new Error(`Could not save profile: ${error.message}`);
 
         return profileRepository.findProfile(access);
     },
