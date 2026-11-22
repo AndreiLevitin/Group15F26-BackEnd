@@ -1,5 +1,5 @@
 -- AB#102: a profile save lands completely or not at all.
--- Run against a test database after migrations 001-009.
+-- Run against a test database after migrations 001-011.
 -- Everything runs in one transaction and the file ends with ROLLBACK,
 -- so the test leaves nothing behind.
 

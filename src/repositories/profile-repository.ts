@@ -116,7 +116,7 @@ export const profileRepository: ProfileRepository = {
         const client = createUserClient(access.accessToken);
 
 // One database call, so the driver, vehicle, and policy writes
-// land together or not at all (save_profile, migration 009).
+// land together or not at all (save_profile, migration 011).
         const { error } = await client.rpc('save_profile', {
             p_name: update.name,
             p_email: update.email,
