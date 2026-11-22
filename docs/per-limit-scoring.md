@@ -143,6 +143,32 @@ model ran or whether enrichment was enabled.
 
 ## Local verification record
 
+### Production verification (AB#109 and AB#112)
+
+1. In the backend project's Vercel Production environment, read the six scoring
+   settings in the table above and the enrichment switch. Use the deployed
+   code's defaults for unset overrides. If the minimum distance is still
+   `0.0001` km, remove the override to use the agreed `0.1` km default or set
+   it explicitly to `0.1`. Verify against a production deployment that uses
+   the effective settings.
+2. End a new trip that qualifies for a score. Confirm the score in the app
+   and run the following read-only query in Supabase for that trip ID.
+
+```sql
+SELECT t.trip_id, t.trip_score, s.score, s.scored_at,
+       s.scoring_version, s.scoring_config
+FROM public.trips AS t
+JOIN public.trip_scoring_results AS s USING (trip_id)
+WHERE t.trip_id = '<new-trip-id>'::uuid;
+```
+
+3. Confirm the score matches the app, the version matches the deployed
+   algorithm, and the config matches the effective Production settings.
+   Record the deployment, trip ID, score, scoring version, and non-secret
+   settings on the story. Leave historical results as recorded.
+
+### Previous local verification
+
 After the band-scoring revision and optional env overrides: all **57** Node tests pass; TypeScript no-emit,
 script syntax checks and `git diff --check` pass. Offline replay reproduces the
 recorded-trip result above. Database migration/SQL tests and Preview verification

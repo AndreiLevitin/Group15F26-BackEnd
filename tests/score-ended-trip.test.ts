@@ -58,20 +58,22 @@ test('present but empty or malformed overrides never silently use defaults', () 
 });
 
 test('scoring orchestration sends result, per-sample decisions, exact distance and config in one save', async () => {
+    const effectiveConfig = loadTripScoringConfig({ ...env, TRIP_MIN_DISTANCE_KM: '0.2' });
     let calls = 0;
-    const result = await scoreEndedTrip('trip', config, {
+    const result = await scoreEndedTrip('trip', effectiveConfig, {
         readRecordedTripData: async () => loaded,
         saveTripScore: async (id, result, savedConfig, distance) => {
             calls++;
             assert.equal(id, 'trip');
             assert.equal(result.score, 80);
+            assert.equal(result.scoringVersion, 'road-bands-v2');
             assert.ok(result.scoringStatus === 'Scored');
             assert.equal(result.speedingEvents, 1);
             assert.equal(result.sampleDecisions.filter(s => s.usedFallback).length, 0);
             assert.equal(result.intervalDecisions.length, 4);
             assert.equal(result.quality.evaluatedSeconds, 4);
             assert.equal(distance, 0.3);
-            assert.deepEqual(savedConfig, config);
+            assert.deepEqual(savedConfig, { ...config, minDistanceKm: 0.2 });
             return trip;
         },
     });
@@ -91,7 +93,12 @@ test('no GPS produces an audited unscored result without invented fallback decis
     let saved: TripScoringResult | undefined;
     await scoreEndedTrip('trip', config, {
         readRecordedTripData: async () => ({ status: 'Unscored', score: null, reason: 'NO_GPS_READINGS' }),
-        saveTripScore: async (_id, result) => { saved = result; return { ...trip, trip_score: null }; },
+        saveTripScore: async (_id, result, savedConfig) => {
+            assert.equal(result.scoringVersion, 'road-bands-v2');
+            assert.deepEqual(savedConfig, config);
+            saved = result;
+            return { ...trip, trip_score: null };
+        },
     });
     assert.equal(saved?.score, null);
     assert.deepEqual(saved?.sampleDecisions, []);
