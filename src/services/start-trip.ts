@@ -1,3 +1,4 @@
+import type { ConsentRepository } from '../repositories/consent-repository.js';
 import type { UserTripRepository } from '../repositories/user-trip-repository.js';
 import type { Trip } from '../types/trip.js';
 import type { Authenticate } from './request-auth.ts';
@@ -8,15 +9,37 @@ function activeTripResponse(trip: Trip) {
         { status: 409 },
     );
 }
+function consentRequiredResponse() {
+    return Response.json(
+        {
+            error: 'consent_required',
+            message: 'Consent to driving-data collection is required before starting a trip.',
+        },
+        { status: 403 },
+    );
+}
 
 /** POST /api/start-trip: starts a trip owned by the signed-in account. */
 export function createStartTripHandler(
     authenticate: Authenticate,
     trips: Pick<UserTripRepository, 'findActiveTrip' | 'createActiveTrip'>,
+    consent: Pick<ConsentRepository, 'findConsent'>,
 ) {
     return async function POST(request: Request): Promise<Response> {
         const auth = await authenticate(request);
         if (!auth.ok) return auth.response;
+
+        // Consent comes before any trip work (AB#106): an account that has
+        // not consented starts nothing, and a failed read refuses the start
+        // as unavailable rather than guessing either way.
+        let consentedAt: string | null;
+        try {
+            consentedAt = await consent.findConsent(auth.access.userId);
+        } catch (error) {
+            console.error('Failed to read consent:', error);
+            return Response.json({ error: 'consent_unavailable' }, { status: 503 });
+        }
+        if (!consentedAt) return consentRequiredResponse();
 
         let activeTrip: Trip | null;
         try {

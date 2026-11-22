@@ -105,10 +105,12 @@ const untouched: UserTripRepository = {
     findTrip: async () => assert.fail('storage should not be accessed'),
     replaceSamples: async () => assert.fail('storage should not be accessed'),
 };
+const consentGiven = { findConsent: async () => '2026-11-13T09:00:00.000Z' };
+const consentUntouched = { findConsent: async () => assert.fail('consent should not be read') };
 
 test('start, upload and end all reject an unauthenticated request before touching storage', async () => {
     const handlers = [
-        createStartTripHandler(denied, untouched)(post('/api/start-trip')),
+        createStartTripHandler(denied, untouched, consentUntouched)(post('/api/start-trip')),
         createUploadTripSamplesHandler(denied, untouched)(post('/api/upload-trip-samples', { tripId, samples: [sample] })),
         createEndTripHandler(denied, untouched, async () => assert.fail('scoring should not run'))(post('/api/end-trip', { tripId })),
     ];
@@ -122,7 +124,7 @@ test('start creates the trip for the caller and ignores any userId in the body',
     const handler = createStartTripHandler(asUserA, {
         findActiveTrip: async () => null,
         createActiveTrip: async caller => { created.push(caller); return activeTrip; },
-    });
+    }, consentGiven);
     const response = await handler(post('/api/start-trip', { userId: 'user-b' }));
     assert.equal(response.status, 201);
     assert.deepEqual(created, [userA]);
@@ -132,7 +134,7 @@ test('start returns the caller\'s existing active trip as 409', async () => {
     const handler = createStartTripHandler(asUserA, {
         findActiveTrip: async () => activeTrip,
         createActiveTrip: async () => assert.fail('must not create a second active trip'),
-    });
+    }, consentGiven);
     const response = await handler(post('/api/start-trip'));
     assert.equal(response.status, 409);
     assert.equal((await response.json()).trip.trip_id, tripId);
@@ -143,7 +145,7 @@ test('start resolves a concurrent-start race to the winning active trip', async 
     const handler = createStartTripHandler(asUserA, {
         findActiveTrip: async () => (lookups++ === 0 ? null : activeTrip),
         createActiveTrip: async () => null,
-    });
+    }, consentGiven);
     assert.equal((await handler(post('/api/start-trip'))).status, 409);
 });
 
