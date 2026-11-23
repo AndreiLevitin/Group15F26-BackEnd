@@ -116,24 +116,36 @@ test('Story 64 persists the expected score using speed limits stored in Supabase
     t.after(async () => {
         for (const table of [
             'trip_interval_scoring', 'trip_sample_scoring', 'trip_scoring_results',
-            'trip_sample_speed_limits', 'trip_data_points', 'trips',
+            'trip_sample_speed_limits',
         ]) {
             const { error } = await supabase.from(table).delete().eq('trip_id', tripId);
             assert.equal(error, null, `Cleanup failed for ${table} (trip ${tripId})`);
         }
+        // The sample guard allows deletes only while the parent trip is Active.
+        const reopened = await supabase.from('trips')
+            .update({ status: 'Active', end_time: null, trip_score: null, distance_km: null })
+            .eq('trip_id', tripId);
+        assert.equal(reopened.error, null, `Could not reopen fixture trip ${tripId} for cleanup`);
+        const samples = await supabase.from('trip_data_points').delete().eq('trip_id', tripId);
+        assert.equal(samples.error, null, `Could not delete samples for fixture trip ${tripId}`);
+        const trip = await supabase.from('trips').delete().eq('trip_id', tripId);
+        assert.equal(trip.error, null, `Could not delete fixture trip ${tripId}`);
     });
 
     const trip = await supabase.from('trips').insert({
         trip_id: tripId,
         start_time: new Date(start).toISOString(),
-        end_time: samples.at(-1)!.recorded_at,
-        status: 'Processing',
+        status: 'Active',
     });
-    assert.equal(trip.error, null, 'Insert the ended trip');
+    assert.equal(trip.error, null, 'Insert the active trip');
     const raw = await supabase.from('trip_data_points').insert(samples.map(
         ({ road_speed_limit_kmh, ...sample }) => ({ ...sample, acceleration: 0 }),
     ));
     assert.equal(raw.error, null, 'Insert GPS samples');
+    const processing = await supabase.from('trips')
+        .update({ status: 'Processing', end_time: samples.at(-1)!.recorded_at })
+        .eq('trip_id', tripId).eq('status', 'Active').select('trip_id').single();
+    assert.equal(processing.error, null, 'Move the uploaded trip to Processing');
     const limits = await supabase.from('trip_sample_speed_limits').insert(samples.map(sample => ({
         sample_id: sample.sample_id,
         trip_id: tripId,

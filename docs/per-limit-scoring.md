@@ -130,12 +130,17 @@ npm run prove:speed-limit-scoring
 This runs the real scoring service with 50 fixture GPS readings, a 500 m
 route and fixed scoring parameters. It checks the GPS-derived distance,
 participating reading count and score using in-memory repository substitutes.
+The proof lives under `scripts/`. Run the command above alongside
+`node --test tests/*.test.ts` to include it in local verification.
 
 To verify actual persistence when a Supabase test database is available, apply
 migrations 001–006 and set `TEST_SUPABASE_URL` and `TEST_SUPABASE_SECRET_KEY`
 to the test project's API URL and secret or service-role key. Then run
 `npm run prove:speed-limit-scoring:db`. This also runs the proof with the
-real repositories, checks the saved row and removes the fixture rows.
+real repositories. It uploads the fixture while the trip is Active, moves
+the trip to Processing, seeds the posted limits and checks the saved score.
+Cleanup removes the scoring audit and limits, reopens the fixture trip,
+then deletes its GPS rows and the trip.
 
 | Seconds within each block | Speed (km/h) | Limit (km/h) | Reading score |
 | ---: | ---: | ---: | ---: |
@@ -146,8 +151,11 @@ real repositories, checks the saved row and removes the fixture rows.
 | 6 | 90 | 60 | 40 |
 | 7 | 110 | 60 | 0 |
 
-The six-point block repeats eight times, starting every eight seconds. Each
-block contributes `90 × 1 + 90 × 2 + 80 × 1 + 50 × 2 + 20 × 1 = 470`
+Each interval score is the average of its two endpoint reading scores. For
+example, the first interval averages 100 and 80 to get 90. Multiply each
+interval score by its duration in seconds before summing. The six-point block
+repeats eight times, starting every eight seconds. Each block contributes
+`90 × 1 + 90 × 2 + 80 × 1 + 50 × 2 + 20 × 1 = 470`
 score-seconds. The seven one-second intervals between blocks each contribute
 50. The final two readings at seconds 64 and 67 both score 100, adding
 `50 × 1 + 100 × 3`. The trip's weighted mean is
