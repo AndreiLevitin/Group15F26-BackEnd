@@ -147,6 +147,22 @@ app session as the Bearer credential. The route takes no input and uses
 the deployment's Supabase connection. It returns the fixture trip ID,
 expected and saved scores, and `cleanup: "passed"` after removing the fixture.
 
+```powershell
+$base = (Read-Host 'Backend URL').TrimEnd('/')
+$cred = Get-Credential -Message 'Sign in with your RevolutionInsure account'
+
+$auth = Invoke-RestMethod -Method Post -Uri "$base/api/sign-in" `
+    -ContentType 'application/json' `
+    -Body (@{
+        email = $cred.UserName
+        password = $cred.GetNetworkCredential().Password
+    } | ConvertTo-Json)
+
+Invoke-RestMethod -Method Post -Uri "$base/api/prove-speed-limit-scoring" `
+    -Headers @{ Authorization = "Bearer $($auth.session.accessToken)" } |
+    ConvertTo-Json
+```
+
 | Seconds within each block | Speed (km/h) | Limit (km/h) | Reading score |
 | ---: | ---: | ---: | ---: |
 | 0 | 55 | 50 | 100 |
