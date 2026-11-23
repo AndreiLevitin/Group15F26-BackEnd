@@ -1,13 +1,23 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/trip-lifecycle.ts": {
+      "maxDuration": 180
+    }
+  },
   "rewrites": [
     { "source": "/api/health", "destination": "/api/diagnostics?check=health" },
     { "source": "/api/supabase-health", "destination": "/api/diagnostics?check=supabase-health" },
-    { "source": "/api/prove-speed-limit-scoring", "destination": "/api/diagnostics?check=prove-speed-limit-scoring" }
-  ],
-  "functions": {
-    "api/end-trip.ts": {
-      "maxDuration": 180
-    }
-  }
+    { "source": "/api/prove-speed-limit-scoring", "destination": "/api/diagnostics?check=prove-speed-limit-scoring" },
+    { "source": "/api/sign-up", "destination": "/api/auth?route=sign-up" },
+    { "source": "/api/sign-in", "destination": "/api/auth?route=sign-in" },
+    { "source": "/api/sign-out", "destination": "/api/auth?route=sign-out" },
+    { "source": "/api/refresh-session", "destination": "/api/auth?route=refresh-session" },
+    { "source": "/api/start-trip", "destination": "/api/trip-lifecycle?route=start-trip" },
+    { "source": "/api/upload-trip-samples", "destination": "/api/trip-lifecycle?route=upload-trip-samples" },
+    { "source": "/api/end-trip", "destination": "/api/trip-lifecycle?route=end-trip" },
+    { "source": "/api/trip-result", "destination": "/api/trip-reads?route=trip-result" },
+    { "source": "/api/trip-history", "destination": "/api/trip-reads?route=trip-history" },
+    { "source": "/api/score-averages", "destination": "/api/trip-reads?route=score-averages" }
+  ]
 }
