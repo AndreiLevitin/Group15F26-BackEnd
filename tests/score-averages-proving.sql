@@ -1,4 +1,4 @@
--- AB#95. Run as owner in a TEST database after migrations 001–007.
+-- AB#95. Run as owner in a TEST database after migrations 001–010.
 -- Uses synthetic scoring payloads through the real scoring-storage RPC.
 -- Does not call the GPS scorer, HTTP endpoints, or external providers.
 BEGIN;

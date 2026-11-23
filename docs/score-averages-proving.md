@@ -2,7 +2,7 @@
 
 ## Environment
 
-Executed locally using PGlite with migrations 001–008.
+Originally executed locally using PGlite with the averages migrations then numbered 007–008 (now 009–010), following migrations 001–006.
 Supabase account tables, roles and identity were represented by local test fixtures.
 No live Supabase database, HTTP endpoint, physical device or external provider was used.
 
@@ -33,7 +33,7 @@ Removing the temporary failure trigger allowed the same scoring payload to succe
 ## Repeat
 
 Run `tests/score-averages-proving.sql` as owner in a disposable test database
-after migrations 001–008, with stop-on-error enabled.
+after migrations 001–010, with stop-on-error enabled.
 The script returns the results table and rolls back all test data and objects.
 
 The local runner also passed:
