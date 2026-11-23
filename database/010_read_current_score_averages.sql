@@ -1,5 +1,5 @@
--- AB#94. Apply after 007_score_averages.sql.
--- Refresh and read the caller's current periods in one transaction.
+-- AB#94. Apply after 009_score_averages.sql.
+-- Read stored current periods; refresh only when missing or outdated.
 BEGIN;
 
 CREATE FUNCTION public.get_my_score_averages()
@@ -29,7 +29,28 @@ BEGIN
 
     -- Identity comes from the database session, never a supplied user ID.
     -- The caller cannot supply a calculation timestamp either.
-    PERFORM public.recompute_score_averages(caller, calculation_time);
+    -- Trip changes already refresh the stored averages.
+    -- Refresh on read only for missing periods or an older Ontario date.
+    IF (
+        SELECT count(*)
+        FROM public.score_averages a
+        WHERE a.driver_id = caller
+            AND (a.calculated_at AT TIME ZONE 'America/Toronto')::date
+                = local_midnight::date
+            AND a.period_start = CASE a.period_type
+                WHEN 'all_time' THEN
+                    '1970-01-01T00:00:00Z'::timestamptz
+                WHEN 'last_30_days' THEN
+                    (local_midnight - interval '29 days')
+                        AT TIME ZONE 'America/Toronto'
+                ELSE date_trunc(
+                    a.period_type,
+                    calculation_time AT TIME ZONE 'America/Toronto'
+                ) AT TIME ZONE 'America/Toronto'
+            END
+    ) <> 6 THEN
+        PERFORM public.recompute_score_averages(caller, calculation_time);
+    END IF;
 
     RETURN QUERY
     SELECT
