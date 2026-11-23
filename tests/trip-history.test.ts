@@ -11,6 +11,7 @@ function makeTrip(overrides: Partial<Trip> = {}): Trip {
         status: 'Completed',
         distance_km: 2,
         trip_score: 90,
+        permission_level: null,
         ...overrides,
     };
 }

@@ -10,7 +10,7 @@ const env = { TRIP_MIN_VALID_READINGS: '5', TRIP_MIN_DISTANCE_KM: '0.1',
     TRIP_SPEED_TOLERANCE_KMH: '5', TRIP_MAX_SCORING_INTERVAL_SECONDS: '3', TRIP_MIN_MOVING_SPEED_KMH: '5',
     TRIP_SPEED_SCORE_BANDS: JSON.stringify([{fromKmh:0,score:80},{fromKmh:16,score:60},{fromKmh:30,score:40},{fromKmh:50,score:0}]) };
 const config = loadTripScoringConfig(env);
-const trip: Trip = { trip_id: 'trip', start_time: '', end_time: '', status: 'Completed', trip_score: 87, distance_km: 0.3 };
+const trip: Trip = { trip_id: 'trip', start_time: '', end_time: '', status: 'Completed', trip_score: 87, distance_km: 0.3, permission_level: null };
 const loaded: RecordedTripResult = { status: 'Ready', input: { tripId: 'trip', distanceKm: 0.3,
     samples: [55, 56, 70, 86, 65].map((speed, i) => ({ sample_id: `sample-${i}`, trip_id: 'trip',
         recorded_at: new Date(Date.UTC(2026, 10, 11, 12, 0, i)).toISOString(),

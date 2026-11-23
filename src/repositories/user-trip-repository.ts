@@ -1,12 +1,11 @@
 // Trip queries made on behalf of a signed-in user (AB#77).
-//
 // Every query runs on a client carrying the user's access token, so Supabase
 // row-level security (database/006_trip_ownership.sql) limits it to that
 // user's own trips. The explicit user_id filters below are the first line of
 // defence; RLS is the backstop if one is ever missed.
 import { createUserClient } from '../lib/supabase.js';
 import type { TripAccess } from '../types/auth.js';
-import { tripFields, type Trip } from '../types/trip.js';
+import { tripFields, type PermissionLevel, type Trip } from '../types/trip.js';
 
 export interface TripSampleRow {
     trip_id: string;
@@ -20,7 +19,7 @@ export interface TripSampleRow {
 export interface UserTripRepository {
     findActiveTrip(access: TripAccess): Promise<Trip | null>;
     /** Returns null when the account already has an active trip. */
-    createActiveTrip(access: TripAccess): Promise<Trip | null>;
+    createActiveTrip(access: TripAccess, permissionLevel: PermissionLevel): Promise<Trip | null>;
     /** Returns null when the trip does not exist or belongs to someone else. */
     findTrip(access: TripAccess, tripId: string): Promise<Trip | null>;
     replaceSamples(access: TripAccess, tripId: string, rows: TripSampleRow[]): Promise<void>;
@@ -40,10 +39,10 @@ export const userTripRepository: UserTripRepository = {
         return data as Trip | null;
     },
 
-    async createActiveTrip(access) {
+    async createActiveTrip(access, permissionLevel) {
         const { data, error } = await createUserClient(access.accessToken)
             .from('trips')
-            .insert({ user_id: access.userId, status: 'Active' })
+            .insert({ user_id: access.userId, status: 'Active', permission_level: permissionLevel })
             .select(tripFields)
             .single();
         if (error) {

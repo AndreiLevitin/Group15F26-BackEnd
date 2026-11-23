@@ -16,7 +16,7 @@ const tripId = '123e4567-e89b-42d3-a456-426614174000';
 const userA: TripAccess = { userId: 'user-a', accessToken: 'token-a' };
 const activeTrip: Trip = {
     trip_id: tripId, start_time: '2026-11-13T10:00:00.000Z', end_time: null,
-    status: 'Active', distance_km: null, trip_score: null,
+    status: 'Active', distance_km: null, trip_score: null, permission_level: null,
 };
 const sample = { timestamp: '2026-11-13T10:00:01.000Z', speed: 50, acceleration: 0.1, latitude: 43, longitude: -80 };
 
@@ -120,14 +120,14 @@ test('start, upload and end all reject an unauthenticated request before touchin
 // --- Start ------------------------------------------------------------------
 
 test('start creates the trip for the caller and ignores any userId in the body', async () => {
-    const created: TripAccess[] = [];
+    const created: { caller: TripAccess; level: string }[] = [];
     const handler = createStartTripHandler(asUserA, {
         findActiveTrip: async () => null,
-        createActiveTrip: async caller => { created.push(caller); return activeTrip; },
+        createActiveTrip: async (caller, level) => { created.push({ caller, level }); return activeTrip; },
     }, consentGiven);
-    const response = await handler(post('/api/start-trip', { userId: 'user-b' }));
+    const response = await handler(post('/api/start-trip', { userId: 'user-b', permission_level: 'foreground' }));
     assert.equal(response.status, 201);
-    assert.deepEqual(created, [userA]);
+    assert.deepEqual(created, [{ caller: userA, level: 'foreground' }]);
 });
 
 test('start returns the caller\'s existing active trip as 409', async () => {
@@ -146,10 +146,59 @@ test('start resolves a concurrent-start race to the winning active trip', async 
         findActiveTrip: async () => (lookups++ === 0 ? null : activeTrip),
         createActiveTrip: async () => null,
     }, consentGiven);
-    assert.equal((await handler(post('/api/start-trip'))).status, 409);
+    assert.equal((await handler(post('/api/start-trip', {permission_level: 'foreground'}))).status, 409);
 });
 
-// --- Upload -----------------------------------------------------------------
+// Start: permission level (AB#207)
+
+test('start stores the permission level sent with the request', async () => {
+    const created: { caller: TripAccess; level: string }[] = [];
+    const handler = createStartTripHandler(asUserA, {
+        findActiveTrip: async () => null,
+        createActiveTrip: async (caller, level) => { created.push({ caller, level }); return { ...activeTrip, permission_level: 'background' }; },
+    }, consentGiven);
+    const response = await handler(post('/api/start-trip', { permission_level: 'background' }));
+    assert.equal(response.status, 201);
+    assert.deepEqual(created, [{ caller: userA, level: 'background' }]);
+    assert.equal((await response.json()).trip.permission_level, 'background');
+});
+
+test('start refuses a request with no permission level and creates nothing', async () => {
+    const handler = createStartTripHandler(asUserA, {
+        findActiveTrip: async () => null,
+        createActiveTrip: async () => assert.fail('must not create a trip without a permission level'),
+    }, consentGiven);
+    const response = await handler(post('/api/start-trip', {}));
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error, 'permission_level_required');
+});
+
+test('start refuses a permission level it does not know and creates nothing', async () => {
+    const handler = createStartTripHandler(asUserA, {
+        findActiveTrip: async () => null,
+        createActiveTrip: async () => assert.fail('must not create a trip for an unknown permission level'),
+    }, consentGiven);
+    const response = await handler(post('/api/start-trip', { permission_level: 'always' }));
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error, 'permission_level_required');
+});
+
+test('start refuses a body that is not JSON and creates nothing', async () => {
+    const handler = createStartTripHandler(asUserA, {
+        findActiveTrip: async () => null,
+        createActiveTrip: async () => assert.fail('must not create a trip for an unreadable body'),
+    }, consentGiven);
+    const request = new Request('https://example.test/api/start-trip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer token-a' },
+        body: 'not json',
+    });
+    const response = await handler(request);
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error, 'permission_level_required');
+});
+
+// Upload
 
 test('upload to another account\'s trip is 404 and stores nothing', async () => {
     const handler = createUploadTripSamplesHandler(asUserA, {

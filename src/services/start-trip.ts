@@ -1,6 +1,6 @@
 import type { ConsentRepository } from '../repositories/consent-repository.js';
 import type { UserTripRepository } from '../repositories/user-trip-repository.js';
-import type { Trip } from '../types/trip.js';
+import type { PermissionLevel, Trip } from '../types/trip.js';
 import type { Authenticate } from './request-auth.ts';
 
 function activeTripResponse(trip: Trip) {
@@ -49,9 +49,27 @@ export function createStartTripHandler(
             return Response.json({ error: 'trip_lookup_failed' }, { status: 503 });
         }
         if (activeTrip) return activeTripResponse(activeTrip);
+        // The trip records the location permission it runs under (AB#207).
+        // A start that does not name a known level is refused and creates
+        // nothing: only the current app calls this endpoint and it always
+        // sends the level, so a missing or wrong one means a broken caller.
+        let permissionLevel: PermissionLevel;
+        try {
+            const body = (await request.json()) as { permission_level?: unknown } | null;
+            const level = body?.permission_level;
+            if (
+                level !== 'background' && level !== 'foreground' &&
+                level !== 'approximate' && level !== 'denied'
+            ) {
+                return Response.json({ error: 'permission_level_required' }, { status: 400 });
+            }
+            permissionLevel = level;
+        } catch {
+            return Response.json({ error: 'permission_level_required' }, { status: 400 });
+        }
 
         try {
-            const trip = await trips.createActiveTrip(auth.access);
+            const trip = await trips.createActiveTrip(auth.access, permissionLevel);
             if (trip) return Response.json({ trip }, { status: 201 });
 
             // Lost a race with a concurrent start for the same account.
