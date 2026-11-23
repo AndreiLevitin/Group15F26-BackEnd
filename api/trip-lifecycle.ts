@@ -6,6 +6,7 @@ import { preflight, withCors } from '../src/lib/cors.ts';
 import { authenticate } from '../src/lib/request-auth.ts';
 import { dispatch } from '../src/lib/route-dispatch.ts';
 import { createTripCompletionDependencies } from '../src/lib/trip-completion-dependencies.ts';
+import { consentRepository } from '../src/repositories/consent-repository.ts';
 import { userTripRepository } from '../src/repositories/user-trip-repository.ts';
 import { completeTrip } from '../src/services/complete-trip.ts';
 import { createEndTripHandler } from '../src/services/end-trip.ts';
@@ -14,7 +15,7 @@ import { createUploadTripSamplesHandler } from '../src/services/upload-trip-samp
 
 const handler = dispatch({
     'start-trip': {
-        POST: withCors(createStartTripHandler(authenticate, userTripRepository)),
+        POST: withCors(createStartTripHandler(authenticate, userTripRepository, consentRepository)),
         OPTIONS: preflight,
     },
     'upload-trip-samples': {
