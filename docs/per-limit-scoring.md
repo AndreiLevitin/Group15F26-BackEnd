@@ -119,6 +119,71 @@ result without changing score, timestamp, parameters or decisions.
 
 ## Verification
 
+### Story 64 known-trip proof (AB#110)
+
+Use Node 24 and run this from the backend repository:
+
+```sh
+npm run prove:speed-limit-scoring
+```
+
+This runs the real scoring service with 50 fixture GPS readings, a 500 m
+route and fixed scoring parameters. It checks the GPS-derived distance,
+participating reading count and score using in-memory repository substitutes.
+The proof lives under `scripts/`. Run the command above alongside
+`node --test tests/*.test.ts` to include it in local verification.
+
+To verify actual persistence, run `npm run prove:speed-limit-scoring:db` with
+the backend's existing Supabase configuration (`SUPABASE_URL` and
+`SUPABASE_SECRET_KEY`). The proof uses the real repositories and needs
+migrations 001–006 on that database. It uploads the fixture while the trip is Active, moves
+the trip to Processing, seeds the posted limits and checks the saved score.
+Cleanup removes the scoring audit and limits, reopens the fixture trip,
+then deletes its GPS rows and the trip.
+
+To run the database proof on a deployed backend, send
+`POST /api/prove-speed-limit-scoring` to that deployment with an existing
+app session as the Bearer credential. The route takes no input and uses
+the deployment's Supabase connection. It returns the fixture trip ID,
+expected and saved scores, and `cleanup: "passed"` after removing the fixture.
+
+```powershell
+$base = (Read-Host 'Backend URL').TrimEnd('/')
+$cred = Get-Credential -Message 'Sign in with your RevolutionInsure account'
+
+$auth = Invoke-RestMethod -Method Post -Uri "$base/api/sign-in" `
+    -ContentType 'application/json' `
+    -Body (@{
+        email = $cred.UserName
+        password = $cred.GetNetworkCredential().Password
+    } | ConvertTo-Json)
+
+Invoke-RestMethod -Method Post -Uri "$base/api/prove-speed-limit-scoring" `
+    -Headers @{ Authorization = "Bearer $($auth.session.accessToken)" } |
+    ConvertTo-Json
+```
+
+| Seconds within each block | Speed (km/h) | Limit (km/h) | Reading score |
+| ---: | ---: | ---: | ---: |
+| 0 | 55 | 50 | 100 |
+| 1 | 60 | 50 | 80 |
+| 3 | 60 | 60 | 100 |
+| 4 | 76 | 60 | 60 |
+| 6 | 90 | 60 | 40 |
+| 7 | 110 | 60 | 0 |
+
+Each interval score is the average of its two endpoint reading scores. For
+example, the first interval averages 100 and 80 to get 90. Multiply each
+interval score by its duration in seconds before summing. The six-point block
+repeats eight times, starting every eight seconds. Each block contributes
+`90 × 1 + 90 × 2 + 80 × 1 + 50 × 2 + 20 × 1 = 470`
+score-seconds. The seven one-second intervals between blocks each contribute
+50. The final two readings at seconds 64 and 67 both score 100, adding
+`50 × 1 + 100 × 3`. The trip's weighted mean is
+`(8 × 470 + 7 × 50 + 50 + 300) / 67 ≈ 66.57`, which rounds to **67**.
+The identical 60 km/h readings receive different scores because their posted
+limits differ.
+
 ```powershell
 node --test tests/*.test.ts
 node node_modules/typescript/bin/tsc --noEmit

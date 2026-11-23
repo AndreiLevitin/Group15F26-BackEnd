@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "prove:speed-limit-scoring": "node --test --test-name-pattern=AB110 scripts/prove-speed-limit-scoring.test.ts",
+    "prove:speed-limit-scoring:db": "node --test scripts/prove-speed-limit-scoring.test.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
