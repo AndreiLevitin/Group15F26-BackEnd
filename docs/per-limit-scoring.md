@@ -133,11 +133,10 @@ participating reading count and score using in-memory repository substitutes.
 The proof lives under `scripts/`. Run the command above alongside
 `node --test tests/*.test.ts` to include it in local verification.
 
-To verify actual persistence when a Supabase test database is available, apply
-migrations 001–006 and set `TEST_SUPABASE_URL` and `TEST_SUPABASE_SECRET_KEY`
-to the test project's API URL and secret or service-role key. Then run
-`npm run prove:speed-limit-scoring:db`. This also runs the proof with the
-real repositories. It uploads the fixture while the trip is Active, moves
+To verify actual persistence, run `npm run prove:speed-limit-scoring:db` with
+the backend's existing Supabase configuration (`SUPABASE_URL` and
+`SUPABASE_SECRET_KEY`). The proof uses the real repositories and needs
+migrations 001–006 on that database. It uploads the fixture while the trip is Active, moves
 the trip to Processing, seeds the posted limits and checks the saved score.
 Cleanup removes the scoring audit and limits, reopens the fixture trip,
 then deletes its GPS rows and the trip.

@@ -80,12 +80,6 @@ test('AB110: the scoring service saves 67 for the known trip', async t => {
 });
 
 test('Story 64 persists the expected score using speed limits stored in Supabase', async t => {
-    const testUrl = process.env.TEST_SUPABASE_URL;
-    const testKey = process.env.TEST_SUPABASE_SECRET_KEY;
-    assert.ok(testUrl && testKey, 'Set TEST_SUPABASE_URL and TEST_SUPABASE_SECRET_KEY for the test database.');
-    process.env.SUPABASE_URL = testUrl;
-    process.env.SUPABASE_SECRET_KEY = testKey;
-
     // Bare Node runs the TypeScript sources directly. These repositories use .js
     // specifiers for their compiled runtime imports.
     const supabaseModule = new URL('../src/lib/supabase.ts', import.meta.url).href;
