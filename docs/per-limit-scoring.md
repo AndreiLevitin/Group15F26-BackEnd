@@ -141,6 +141,12 @@ the trip to Processing, seeds the posted limits and checks the saved score.
 Cleanup removes the scoring audit and limits, reopens the fixture trip,
 then deletes its GPS rows and the trip.
 
+To run the database proof on a deployed backend, send
+`POST /api/prove-speed-limit-scoring` to that deployment with an existing
+app session as the Bearer credential. The route takes no input and uses
+the deployment's Supabase connection. It returns the fixture trip ID,
+expected and saved scores, and `cleanup: "passed"` after removing the fixture.
+
 | Seconds within each block | Speed (km/h) | Limit (km/h) | Reading score |
 | ---: | ---: | ---: | ---: |
 | 0 | 55 | 50 | 100 |
