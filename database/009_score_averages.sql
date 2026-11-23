@@ -1,4 +1,4 @@
--- AB#93. Apply once as owner after migrations 001–006.
+-- AB#93. Apply once as owner after migrations 001–008.
 -- Calendar periods use America/Toronto, including daylight saving time.
 -- Weeks start on Monday. Last 30 days includes today and 29 preceding dates.
 BEGIN;
