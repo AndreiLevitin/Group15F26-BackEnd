@@ -10,7 +10,7 @@ import type { SampleSpeedLimit } from '../src/types/speed-limit.ts';
 
 const config = { minValidReadings: 5, minDistanceKm: 0.1, toleranceKmh: 5, maxIntervalSeconds: 3, minMovingSpeedKmh: 5,
     bands: [{fromKmh:0,score:80},{fromKmh:16,score:60},{fromKmh:30,score:40},{fromKmh:50,score:0}] };
-const trip: Trip = { trip_id: 'trip', start_time: '', end_time: '2026-11-11T12:00:00Z', status: 'Processing', trip_score: null, distance_km: 0.3 };
+const trip: Trip = { trip_id: 'trip', start_time: '', end_time: '2026-11-11T12:00:00Z', status: 'Processing', trip_score: null, distance_km: 0.3, permission_level: null };
 function dependencies() {
     let state = { ...trip };
     const log: CompletionLog[] = [];
