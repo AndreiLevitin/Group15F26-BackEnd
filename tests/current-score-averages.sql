@@ -1,4 +1,4 @@
--- AB#94. Run after migrations 001–008 in a TEST database.
+-- AB#94. Run after migrations 001–010 in a TEST database.
 BEGIN;
 
 CREATE TEMP TABLE current_average_test_ids AS
@@ -24,6 +24,13 @@ FROM current_average_test_ids
 UNION ALL
 SELECT b, statement_timestamp(), 'Completed', 20
 FROM current_average_test_ids;
+
+-- Simulate yesterday's stored values before the first authenticated read.
+SELECT public.recompute_score_averages(
+    a,
+    (date_trunc('day', statement_timestamp() AT TIME ZONE 'America/Toronto')
+        AT TIME ZONE 'America/Toronto') - interval '1 second'
+) FROM current_average_test_ids;
 
 SET LOCAL ROLE authenticated;
 
@@ -148,5 +155,36 @@ BEGIN
 END $$;
 
 RESET ROLE;
+
+-- Repeated reads must not write when the stored periods are current.
+CREATE FUNCTION public.reject_average_write_94()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'TEST: fresh read unexpectedly recalculated averages';
+END $$;
+
+CREATE TRIGGER reject_average_write_94
+    BEFORE INSERT OR UPDATE OR DELETE ON public.score_averages
+    FOR EACH ROW EXECUTE FUNCTION public.reject_average_write_94();
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims',
+    jsonb_build_object('sub', a, 'role', 'authenticated')::text, true
+) FROM current_average_test_ids;
+
+SELECT * FROM public.get_my_score_averages();
+SELECT * FROM public.get_my_score_averages();
+
+-- An initialized empty account must also reuse its stored values.
+SELECT set_config('request.jwt.claims',
+    jsonb_build_object('sub', c, 'role', 'authenticated')::text, true
+) FROM current_average_test_ids;
+
+SELECT * FROM public.get_my_score_averages();
+
+RESET ROLE;
+DROP TRIGGER reject_average_write_94 ON public.score_averages;
+DROP FUNCTION public.reject_average_write_94();
+
 SELECT 'current score averages checks passed' AS result;
 ROLLBACK;
