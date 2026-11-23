@@ -1,8 +1,19 @@
+// Serves /api/health and /api/supabase-health
+// (see rewrites in vercel.json and src/lib/route-dispatch.ts).
+import { dispatch } from '../src/lib/route-dispatch.ts';
 
-import { supabase } from '../src/lib/supabase.js';
+function serviceHealth() {
+    return Response.json({
+        status: "ok",
+        service: "RevolutionInsure Backend"
+    });
+}
 
-export async function GET() {
+async function supabaseHealth() {
     try {
+        // Loaded lazily: src/lib/supabase.ts throws when its environment
+        // variables are missing, and /api/health must keep answering then.
+        const { supabase } = await import('../src/lib/supabase.ts');
         const { error } = await supabase.auth.admin.listUsers({
             page: 1,
             perPage: 1,
@@ -30,3 +41,8 @@ export async function GET() {
         );
     }
 }
+
+export const GET = dispatch({
+    'health': { GET: serviceHealth },
+    'supabase-health': { GET: supabaseHealth },
+});
