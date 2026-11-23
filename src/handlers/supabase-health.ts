@@ -1,5 +1,5 @@
 
-import { supabase } from '../src/lib/supabase.js';
+import { supabase } from '../lib/supabase.ts';
 
 export async function GET() {
     try {

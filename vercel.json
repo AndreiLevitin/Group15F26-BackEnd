@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/api/health", "destination": "/api/diagnostics?check=health" },
+    { "source": "/api/supabase-health", "destination": "/api/diagnostics?check=supabase-health" },
+    { "source": "/api/prove-speed-limit-scoring", "destination": "/api/diagnostics?check=prove-speed-limit-scoring" }
+  ],
   "functions": {
     "api/end-trip.ts": {
       "maxDuration": 180
